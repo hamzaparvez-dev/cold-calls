@@ -1,0 +1,28 @@
+{
+  "name": "client-acd",
+  "description": "Twilio softphone with ACD",
+  "website": "https://github.com/choppen5/client-acd",
+  "success_url": "/",
+  "addons": ["mongolab"],
+  "env": {
+    "twilio_account_sid": {
+            "description": "Your Twilio account Id"
+    },
+    "twilio_account_token": {
+            "description": "Your Twilio account token" 
+    },
+     "twilio_caller_id": {
+            "description": "Must be a Twilio number in your account or validated number" 
+    },
+    "twilio_queue_name": {
+            "description": "User defined name of queue",
+            "value"      : "CustomerService"
+    },
+    "twilio_app_id": {
+            "description": "Application Id - you must create app in your Twilio Account -> Dev Tools ->  Twiml Apps"
+    },
+    "twilio_dqueue_url": {
+            "description": "This will be the url of this newly create  heroku app + /voice, ie http://myapp.herokuapp.com/voice"
+    }
+  }
+}
