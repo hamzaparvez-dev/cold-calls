@@ -1,8 +1,8 @@
-# Twilio Dialer with ACD (Automatic Call Distribution)
+# Cold Calls - Twilio Dialer with ACD
 
 A production-ready Ruby/Sinatra application that provides a web-based softphone interface with automatic call distribution capabilities using Twilio's API.
 
-## Features
+## 🚀 Features
 
 - **Web-based Softphone**: Browser-based calling interface
 - **Automatic Call Distribution**: Intelligent call routing to available agents
@@ -14,21 +14,21 @@ A production-ready Ruby/Sinatra application that provides a web-based softphone 
 - **Call Recording**: Automatic call recording
 - **Production Ready**: Comprehensive error handling, logging, and security
 
-## Quick Start
+## 🎯 Quick Start
 
 ### Prerequisites
 
 - Ruby 3.0+
 - MongoDB (local or MongoDB Atlas)
 - Twilio Account with phone number
-- Node.js (for development)
+- Render account (for deployment)
 
-### Installation
+### Local Development
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
-   cd twilio-dialer/lightning-dialer
+   git clone https://github.com/hamzaparvez-dev/cold-calls.git
+   cd cold-calls
    ```
 
 2. **Install dependencies**
@@ -55,9 +55,24 @@ A production-ready Ruby/Sinatra application that provides a web-based softphone 
 6. **Access the application**
    Open http://localhost:5000 in your browser
 
-## Environment Variables
+## 🌐 Render Deployment
 
-Create a `.env` file with the following variables:
+### One-Click Deploy
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+### Manual Deployment
+
+1. **Fork this repository** or use your own copy
+2. **Go to [Render Dashboard](https://dashboard.render.com)**
+3. **Click "New +" → "Web Service"**
+4. **Connect your GitHub repository**
+5. **Set environment variables** (see below)
+6. **Deploy!**
+
+## 🔧 Environment Variables
+
+Set these in your Render dashboard:
 
 ```bash
 # Twilio Configuration
@@ -66,54 +81,44 @@ twilio_account_token=your_auth_token_here
 twilio_app_id=APxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 twilio_caller_id=+1234567890
 twilio_queue_name=CustomerService
-twilio_dqueue_url=https://your-domain.com/voice
+twilio_dqueue_url=https://your-app-name.onrender.com/voice
 
 # MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017/twilio_dialer
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/cold_calls
 
-# Optional Configuration
-anycallerid=none
+# Application Configuration
 RACK_ENV=production
-PORT=5000
+PORT=10000
 LOG_LEVEL=INFO
+anycallerid=none
 ```
 
-## Twilio Setup
+## 📞 Twilio Setup
 
 ### 1. Get Twilio Credentials
-- Account SID and Auth Token: https://twilio.com/user/account
-- Phone Number: Purchase from Twilio Console
-- TwiML App: Create in Dev Tools > TwiML Apps
+- **Account SID & Auth Token**: https://twilio.com/user/account
+- **Phone Number**: Purchase from Twilio Console
+- **TwiML App**: Create in Dev Tools > TwiML Apps
 
 ### 2. Configure Webhooks
-Update your Twilio phone number webhooks:
-- Voice URL: `https://your-domain.com/voice`
-- Status Callback: `https://your-domain.com/handledialcallstatus`
+After deployment, update your Twilio phone number:
+- **Voice URL**: `https://your-app-name.onrender.com/voice`
+- **Status Callback**: `https://your-app-name.onrender.com/handledialcallstatus`
 
 ### 3. TwiML App Configuration
-- Voice URL: `https://your-domain.com/dial`
-- Status Callback: `https://your-domain.com/handledialcallstatus`
+- **Voice URL**: `https://your-app-name.onrender.com/dial`
+- **Status Callback**: `https://your-app-name.onrender.com/handledialcallstatus`
 
-## Deployment Options
+## 🗄️ MongoDB Setup
 
-### Heroku
-```bash
-heroku create your-app-name
-heroku addons:create mongolab:sandbox
-heroku config:set twilio_account_sid=ACxxx...
-# ... set other environment variables
-git push heroku main
-```
+### MongoDB Atlas (Recommended)
+1. Go to https://cloud.mongodb.com
+2. Create a free cluster (M0 Sandbox)
+3. Create database user
+4. Whitelist IP `0.0.0.0/0` for Render access
+5. Copy connection string
 
-### Docker
-```bash
-docker-compose up -d
-```
-
-### VPS/Cloud Server
-See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed instructions.
-
-## API Endpoints
+## 📚 API Endpoints
 
 ### Web Interface
 - `GET /` - Main softphone interface
@@ -140,7 +145,7 @@ See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed instructions.
 - `POST /send_to_agent` - Transfer to agent
 - `POST /voicemail` - Voicemail drop
 
-## Architecture
+## 🏗️ Architecture
 
 ### Components
 - **Sinatra Web Server**: Main application server
@@ -171,7 +176,7 @@ See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed instructions.
 }
 ```
 
-## Security Features
+## 🔒 Security Features
 
 - **Input Validation**: All user inputs are validated and sanitized
 - **CORS Configuration**: Proper cross-origin resource sharing
@@ -179,31 +184,27 @@ See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed instructions.
 - **Error Handling**: Comprehensive error handling and logging
 - **Rate Limiting**: Built-in protection against abuse
 
-## Monitoring and Logging
+## 📊 Monitoring and Logging
 
 - **Structured Logging**: JSON-formatted logs with different levels
 - **Health Checks**: Built-in health check endpoints
 - **Error Tracking**: Comprehensive error logging and reporting
 - **Performance Monitoring**: Queue size and agent status monitoring
 
-## Development
+## 🧪 Testing
 
-### Running Tests
+### Test Script
 ```bash
-bundle exec rspec  # If you add tests
+ruby test_app.rb
 ```
 
-### Code Style
-```bash
-rubocop  # If you add RuboCop
-```
+### Manual Testing
+1. **Web Interface**: Visit your app URL
+2. **Incoming Calls**: Call your Twilio phone number
+3. **Click-to-Dial**: Use the web interface
+4. **Agent Status**: Test Ready/Not Ready functionality
 
-### Development Server
-```bash
-rerun 'ruby client-acd-production.rb'
-```
-
-## Troubleshooting
+## 🚨 Troubleshooting
 
 ### Common Issues
 
@@ -222,12 +223,18 @@ rerun 'ruby client-acd-production.rb'
    - Verify WebSocket support
    - Check browser compatibility
 
-### Logs
-- Application logs: Check console output
-- MongoDB logs: Check MongoDB log files
-- Twilio logs: Check Twilio Console logs
+### Render-Specific
+- Free tier services sleep after 15 minutes of inactivity
+- Cold starts take 30-60 seconds
+- Upgrade to paid plan for always-on service
 
-## Contributing
+## 📖 Documentation
+
+- [Deployment Guide](RENDER_DEPLOYMENT.md) - Detailed Render deployment instructions
+- [Environment Setup](ENVIRONMENT_SETUP.md) - Environment variable configuration
+- [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment checklist
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -235,18 +242,18 @@ rerun 'ruby client-acd-production.rb'
 4. Add tests if applicable
 5. Submit a pull request
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Support
+## 🆘 Support
 
 For support and questions:
-- Check the [Deployment Guide](DEPLOYMENT_GUIDE.md)
+- Check the [Deployment Guide](RENDER_DEPLOYMENT.md)
 - Review the [Environment Setup](ENVIRONMENT_SETUP.md)
 - Open an issue on GitHub
 
-## Changelog
+## 🎉 Changelog
 
 ### v2.0.0 (Production Ready)
 - Added comprehensive error handling
@@ -263,3 +270,7 @@ For support and questions:
 - ACD queue management
 - WebSocket real-time updates
 - Click-to-dial capabilities
+
+---
+
+**Built with ❤️ using Ruby, Sinatra, Twilio, and MongoDB**
