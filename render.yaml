@@ -4,7 +4,7 @@ services:
     name: cold-calls-dialer
     env: ruby
     plan: starter
-    runtime: ruby-3.0
+    runtime: ruby-3.2
     buildCommand: bundle install --without development test
     startCommand: bundle exec puma -p $PORT -e production
     envVars:
