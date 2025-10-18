@@ -3,10 +3,10 @@ source 'https://rubygems.org'
 # Specify Ruby version for Render compatibility
 ruby '3.2.0'
 
-# Core application gems
+# Core application gems - simplified for better compatibility
 gem 'sinatra', '~> 2.0'
 gem 'twilio-ruby', '~> 5.0'
-gem 'json', '~> 2.0'
+gem 'json'
 gem 'sinatra-websocket', '~> 0.3'
 gem 'mongo', '~> 2.0'
 gem 'eventmachine', '~> 1.0'
@@ -16,7 +16,7 @@ gem 'puma', '~> 5.0'
 gem 'rack', '~> 2.0'
 gem 'dotenv', '~> 2.0'
 
-# Security and monitoring
+# Security gems
 gem 'rack-protection', '~> 2.0'
 gem 'rack-cors', '~> 1.0'
 
