@@ -1,7 +1,7 @@
 source 'https://rubygems.org'
 
 # Specify Ruby version for Render compatibility
-ruby '3.1.0'
+ruby '3.3.0'
 
 # Core application gems - minimal for maximum compatibility
 gem 'sinatra'
