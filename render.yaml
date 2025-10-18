@@ -1,0 +1,31 @@
+# Render deployment configuration
+services:
+  - type: web
+    name: twilio-dialer
+    env: ruby
+    plan: starter
+    buildCommand: bundle install
+    startCommand: bundle exec puma -p $PORT -e production
+    envVars:
+      - key: RACK_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: LOG_LEVEL
+        value: INFO
+      - key: twilio_account_sid
+        sync: false
+      - key: twilio_account_token
+        sync: false
+      - key: twilio_app_id
+        sync: false
+      - key: twilio_caller_id
+        sync: false
+      - key: twilio_queue_name
+        value: CustomerService
+      - key: twilio_dqueue_url
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: anycallerid
+        value: none
