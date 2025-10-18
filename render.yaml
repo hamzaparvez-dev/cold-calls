@@ -5,7 +5,9 @@ services:
     env: ruby
     plan: starter
     runtime: ruby-3.2
-    buildCommand: gem install bundler -v '~> 2.0' && bundle install --without development test
+    buildCommand: |
+      gem install bundler -v '~> 2.0'
+      bundle install --without development test
     startCommand: bundle exec puma -p $PORT -e production
     envVars:
       - key: RACK_ENV
