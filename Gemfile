@@ -1,23 +1,29 @@
-# The source for downloading gems from the official repository
 source 'https://rubygems.org'
 
-# Specify a stable Ruby version that is well-supported on Render
-ruby '3.2.2'
+# Specify Ruby version to match Render's environment
+ruby '3.3.0'
 
-# --- Core Application Gems ---
-# Updated to modern, compatible versions
-gem 'sinatra', '~> 3.0'
-gem 'twilio-ruby', '~> 5.75' # Use a modern version compatible with new Ruby
-gem 'json'
-gem 'sinatra-websocket'
-gem 'mongo', '~> 2.19'      # Modern MongoDB driver
-gem 'bson_ext'
-gem 'eventmachine', '~> 1.2'
+# Core application gems - with compatible versions
+gem 'sinatra', '~> 2.0'
+gem 'twilio-ruby', '~> 3.0'  # Use older version to avoid Builder issues
+gem 'builder', '~> 3.1'  # Use older Builder version compatible with Ruby 3.3.0
+gem 'json', '~> 2.0'
+gem 'sinatra-websocket', '~> 0.3'
+gem 'mongo', '~> 2.0'  # Use modern MongoDB driver
+gem 'bson_ext'  # Add BSON extension for performance
+gem 'eventmachine', '~> 1.0'
+gem 'bigdecimal'  # Fix for Ruby 3.4+ compatibility warning
+gem 'base64'  # Fix for Ruby 3.4+ compatibility warning
 
-# --- Server Gem for Production ---
-# Puma is the industry-standard web server Render will use
-gem 'puma', '~> 5.6'
+# Production gems
+gem 'puma', '~> 5.0'
+gem 'rack', '~> 2.0'
+gem 'dotenv', '~> 2.0'
 
-# --- Utility Gem for Environment Variables ---
-# Loads your .env file in your local development environment
-gem 'dotenv'
+# Security gems
+gem 'rack-protection', '~> 2.0'
+gem 'rack-cors', '~> 1.0'
+
+group :development, :test do
+  gem 'rerun', '~> 0.13'
+end
