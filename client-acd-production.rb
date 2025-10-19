@@ -88,9 +88,13 @@ mongocalls = settings.mongo_connection['calls']
 
 ################ TWILIO CONFIG ################
 begin
-  # Create a secure HTTP client that knows where to find the SSL certificates
-  http_client = Twilio::HTTP::Client.new
-  http_client.ssl_ca_file = '/etc/ssl/certs/ca-certificates.crt'
+  # CORRECT WAY TO SET SSL CERT FILE FOR MODERN TWILIO-RUBY GEM
+  # This configures the underlying HTTP client (Faraday) with the correct certificate path.
+  http_client = Twilio::HTTP::FaradayClient.new(
+    ssl: {
+      ca_file: '/etc/ssl/certs/ca-certificates.crt'
+    }
+  )
 
   # Initialize the Twilio client using our secure http_client
   @client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
@@ -172,12 +176,12 @@ end
 ## Returns a token for a Twilio client
 get '/token' do
   client_name = sanitize_input(params[:client]) || default_client
-
+  
   unless validate_client_name(client_name)
     logger.warn("Invalid client name for token request: #{client_name}")
     client_name = default_client
   end
-
+  
   begin
     # For client-side JS SDK, you need a capability token
     capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
@@ -191,7 +195,7 @@ get '/token' do
     status 500
     return "Token generation failed"
   end
-end
+end 
 
 ## WEBSOCKETS: Accepts inbound websocket connection
 get '/websocket' do
@@ -473,8 +477,7 @@ post '/voicemail' do
       return "Missing parameters"
     end
 
-    http_client = Twilio::HTTP::Client.new
-    http_client.ssl_ca_file = '/etc/ssl/certs/ca-certificates.crt'
+    http_client = Twilio::HTTP::FaradayClient.new(ssl: {ca_file: '/etc/ssl/certs/ca-certificates.crt'})
     local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
     
     child_calls = local_client.calls.list(parent_call_sid: callsid)
@@ -509,8 +512,7 @@ post '/request_hold' do
       return "Invalid parameters"
     end
 
-    http_client = Twilio::HTTP::Client.new
-    http_client.ssl_ca_file = '/etc/ssl/certs/ca-certificates.crt'
+    http_client = Twilio::HTTP::FaradayClient.new(ssl: {ca_file: '/etc/ssl/certs/ca-certificates.crt'})
     local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
 
     if calltype == "Inbound"
@@ -557,8 +559,7 @@ post '/request_unhold' do
       return "Invalid parameters"
     end
 
-    http_client = Twilio::HTTP::Client.new
-    http_client.ssl_ca_file = '/etc/ssl/certs/ca-certificates.crt'
+    http_client = Twilio::HTTP::FaradayClient.new(ssl: {ca_file: '/etc/ssl/certs/ca-certificates.crt'})
     local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
     
     call = local_client.account.calls(callsid).fetch
