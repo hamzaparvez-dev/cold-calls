@@ -4,11 +4,11 @@ services:
     name: cold-calls-dialer
     env: ruby
     plan: starter
-    runtime: ruby-3.3
-    buildCommand: |
-      gem install bundler -v '~> 2.0'
-      bundle install --without development test
-    startCommand: bundle exec puma -p $PORT -e production
+    # Let Render use the ruby version from your .ruby-version or Gemfile
+    runtime: ruby
+    # Simplified, reliable build command
+    buildCommand: "bundle install --without development test"
+    startCommand: "bundle exec puma -p $PORT -e production"
     envVars:
       - key: RACK_ENV
         value: production
