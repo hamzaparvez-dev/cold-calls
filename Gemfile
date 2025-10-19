@@ -5,7 +5,8 @@ ruby '3.3.0'
 
 # Core application gems - with compatible versions
 gem 'sinatra', '~> 2.0'
-gem 'twilio-ruby', '~> 3.0'  # Use even older version to avoid Builder issues
+gem 'twilio-ruby', '~> 3.0'  # Use older version to avoid Builder issues
+gem 'builder', '~> 3.1'  # Use older Builder version compatible with Ruby 3.3.0
 gem 'json', '~> 2.0'
 gem 'sinatra-websocket', '~> 0.3'
 gem 'mongo', '~> 2.0'  # Use modern MongoDB driver
