@@ -1,29 +1,25 @@
+# The source for downloading gems from the official repository
 source 'https://rubygems.org'
 
-# Specify Ruby version to match Render's environment
+# Specify the Ruby version to match Render's environment
 ruby '3.3.0'
 
-# Core application gems - with compatible versions
-gem 'sinatra', '~> 2.0'
-gem 'twilio-ruby', '~> 3.0'  # Use older version to avoid Builder issues
-gem 'builder', '~> 3.1'  # Use older Builder version compatible with Ruby 3.3.0
-gem 'json', '~> 2.0'
-gem 'sinatra-websocket', '~> 0.3'
-gem 'mongo', '~> 2.0'  # Use modern MongoDB driver
-gem 'bson_ext'  # Add BSON extension for performance
-gem 'eventmachine', '~> 1.0'
-gem 'bigdecimal'  # Fix for Ruby 3.4+ compatibility warning
-gem 'base64'  # Fix for Ruby 3.4+ compatibility warning
+# --- Core Application Gems (Updated for Compatibility) ---
+gem 'sinatra', '~> 3.0'
+gem 'twilio-ruby', '~> 5.75' # CRITICAL: This line is the fix
+gem 'json'
+gem 'sinatra-websocket'
+gem 'mongo', '~> 2.19'
+gem 'bson_ext'
+gem 'eventmachine', '~> 1.2'
+gem 'dotenv'
 
-# Production gems
-gem 'puma', '~> 5.0'
-gem 'rack', '~> 2.0'
-gem 'dotenv', '~> 2.0'
+# --- Production & Security Gems ---
+gem 'puma', '~> 5.6'
+gem 'rack-protection'
+gem 'rack-cors'
 
-# Security gems
-gem 'rack-protection', '~> 2.0'
-gem 'rack-cors', '~> 1.0'
-
+# --- Development-Only Gems ---
 group :development, :test do
-  gem 'rerun', '~> 0.13'
+  gem 'rerun'
 end
