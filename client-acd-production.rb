@@ -8,6 +8,13 @@ require 'logger'
 require 'dotenv/load'
 require 'rack/protection'
 require 'rack/cors'
+require 'openssl' # Required for the SSL fix
+
+# --- FINAL SSL FIX ---
+# This globally tells Ruby's OpenSSL where to find trusted certificates.
+# It's more reliable than configuring the Twilio client directly.
+OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE if ENV['RACK_ENV'] == 'development' # For local dev
+ENV['SSL_CERT_FILE'] = '/etc/ssl/certs/ca-certificates.crt'
 
 # Load environment variables
 Dotenv.load
@@ -88,16 +95,9 @@ mongocalls = settings.mongo_connection['calls']
 
 ################ TWILIO CONFIG ################
 begin
-  # CORRECT WAY TO SET SSL CERT FILE FOR MODERN TWILIO-RUBY GEM
-  # This configures the underlying HTTP client (Faraday) with the correct certificate path.
-  http_client = Twilio::HTTP::FaradayClient.new(
-    ssl: {
-      ca_file: '/etc/ssl/certs/ca-certificates.crt'
-    }
-  )
-
-  # Initialize the Twilio client using our secure http_client
-  @client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
+  # Reverted to the simple, original initialization.
+  # The global OpenSSL setting at the top of the file will handle the certificate issue.
+  @client = Twilio::REST::Client.new(account_sid, auth_token)
 
   account = @client.account
   @queues = account.queues.list
@@ -176,12 +176,12 @@ end
 ## Returns a token for a Twilio client
 get '/token' do
   client_name = sanitize_input(params[:client]) || default_client
-  
+
   unless validate_client_name(client_name)
     logger.warn("Invalid client name for token request: #{client_name}")
     client_name = default_client
   end
-  
+
   begin
     # For client-side JS SDK, you need a capability token
     capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
@@ -195,7 +195,7 @@ get '/token' do
     status 500
     return "Token generation failed"
   end
-end 
+end
 
 ## WEBSOCKETS: Accepts inbound websocket connection
 get '/websocket' do
@@ -288,12 +288,12 @@ post '/voice' do
         )
         dial.client(identity: client_name)
         response.append(dial)
-        
+
         logger.debug("dialing client #{client_name}")
         agentinfo = {_id: sid, agent: client_name, status: "Ringing"}
         mongocalls.update_one({_id: sid}, {"$set" => agentinfo}, {upsert: true})
     end
-    
+
     logger.debug("Response text for /voice post = #{response.to_s}")
     response.to_s
   rescue => e
@@ -352,7 +352,7 @@ post '/dial' do
     )
     dial.number(number)
     response.append(dial)
-    
+
     puts response.to_s
     response.to_s
   rescue => e
@@ -477,8 +477,7 @@ post '/voicemail' do
       return "Missing parameters"
     end
 
-    http_client = Twilio::HTTP::FaradayClient.new(ssl: {ca_file: '/etc/ssl/certs/ca-certificates.crt'})
-    local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
+    local_client = Twilio::REST::Client.new(account_sid, auth_token)
     
     child_calls = local_client.calls.list(parent_call_sid: callsid)
 
@@ -512,8 +511,7 @@ post '/request_hold' do
       return "Invalid parameters"
     end
 
-    http_client = Twilio::HTTP::FaradayClient.new(ssl: {ca_file: '/etc/ssl/certs/ca-certificates.crt'})
-    local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
+    local_client = Twilio::REST::Client.new(account_sid, auth_token)
 
     if calltype == "Inbound"
       callsid = local_client.account.calls(callsid).fetch.parent_call_sid
@@ -559,8 +557,7 @@ post '/request_unhold' do
       return "Invalid parameters"
     end
 
-    http_client = Twilio::HTTP::FaradayClient.new(ssl: {ca_file: '/etc/ssl/certs/ca-certificates.crt'})
-    local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
+    local_client = Twilio::REST::Client.new(account_sid, auth_token)
     
     call = local_client.account.calls(callsid).fetch
     call.update(
