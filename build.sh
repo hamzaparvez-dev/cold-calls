@@ -8,3 +8,4 @@ echo "Installing gems..."
 bundle install --without development test
 
 echo "Build completed successfully!"
+

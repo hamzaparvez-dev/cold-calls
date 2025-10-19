@@ -8,9 +8,11 @@ gem 'sinatra', '~> 2.0'
 gem 'twilio-ruby', '~> 5.0'
 gem 'json', '~> 2.0'
 gem 'sinatra-websocket', '~> 0.3'
-gem 'mongo', '~> 1.12'  # Use older version compatible with our code
+gem 'mongo', '~> 2.0'  # Use modern MongoDB driver
+gem 'bson_ext'  # Add BSON extension for performance
 gem 'eventmachine', '~> 1.0'
 gem 'bigdecimal'  # Fix for Ruby 3.4+ compatibility warning
+gem 'base64'  # Fix for Ruby 3.4+ compatibility warning
 
 # Production gems
 gem 'puma', '~> 5.0'

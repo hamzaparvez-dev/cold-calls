@@ -71,10 +71,9 @@ logger.info("Environment: #{ENV['RACK_ENV'] || 'development'}")
 ########### DB Setup  ###################
 begin
   configure do
-    db = URI.parse(mongohqdbstring)
-    db_name = db.path.gsub(/^\//, '')   
-    @conn = Mongo::Connection.new(db.host, db.port).db(db_name)
-    @conn.authenticate(db.user, db.password) unless (db.user.nil? || db.password.nil?)
+    # Use modern MongoDB driver
+    @client = Mongo::Client.new(mongohqdbstring)
+    @conn = @client.database
     set :mongo_connection, @conn
     logger.info("MongoDB connection established")
   end
