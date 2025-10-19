@@ -1,26 +1,25 @@
+# The source for downloading gems from the official repository
 source 'https://rubygems.org'
 
-# Specify Ruby version for Render compatibility
-ruby '3.2.0'
+# Specify the Ruby version to match Render's environment
+ruby '3.3.0'
 
-# Core application gems - minimal for maximum compatibility
-gem 'sinatra'
-gem 'twilio-ruby'
+# --- Core Application Gems (Updated for Compatibility) ---
+gem 'sinatra', '~> 3.0'
+gem 'twilio-ruby', '~> 5.75' # CRITICAL: Use a modern version
 gem 'json'
 gem 'sinatra-websocket'
-gem 'mongo'
-gem 'eventmachine'
-
-# Production gems
-gem 'puma'
-gem 'rack'
+gem 'mongo', '~> 2.19'
+gem 'bson_ext'
+gem 'eventmachine', '~> 1.2'
 gem 'dotenv'
 
-# Security gems
+# --- Production & Security Gems ---
+gem 'puma', '~> 5.6'
 gem 'rack-protection'
 gem 'rack-cors'
 
+# --- Development-Only Gems ---
 group :development, :test do
   gem 'rerun'
 end
-

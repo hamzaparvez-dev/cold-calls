@@ -179,17 +179,11 @@ get '/token' do
   end
 
   begin
-    capability = Twilio::TwiML::VoiceResponse.new
-    capability.dial do |dial|
-        dial.client(client_name)
-    end
-    
-    # This part is for generating a capability token, which is different from TwiML
     # For client-side JS SDK, you need a capability token
-    capability = Twilio::Util::Capability.new account_sid, auth_token
-    capability.allow_client_outgoing app_id
-    capability.allow_client_incoming client_name
-    token = capability.generate
+    capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
+    capability.add_scope(Twilio::JWT::ClientCapability::OutgoingScope.new(app_id))
+    capability.add_scope(Twilio::JWT::ClientCapability::IncomingScope.new(client_name))
+    token = capability.to_jwt
 
     return token
   rescue => e
@@ -281,20 +275,19 @@ post '/voice' do
         response.say(message: "Please wait for the next available agent")
         response.enqueue(name: dialqueue)
     else
-        response.dial(
-          timeout: "10",
-          record: "record-from-answer",
+        dial = Twilio::TwiML::Dial.new(
+          timeout: '10',
+          record: 'record-from-answer',
           caller_id: callerid,
-          method: "GET",
+          method: 'GET',
           action: "http://yardidhruv-touchpoint.cs62.force.com/Click2Dial/services/apexrest/TwilioCalls/TouchPoint?FromNumber=#{callerid}"
-        ) do |dial|
-          logger.debug("dialing client #{client_name}")
-
-          agentinfo = {_id: sid, agent: client_name, status: "Ringing"}
-          mongocalls.update_one({_id: sid}, {"$set" => agentinfo}, {upsert: true})
-
-          dial.client(client_name)
-        end
+        )
+        dial.client(identity: client_name)
+        response.append(dial)
+        
+        logger.debug("dialing client #{client_name}")
+        agentinfo = {_id: sid, agent: client_name, status: "Ringing"}
+        mongocalls.update_one({_id: sid}, {"$set" => agentinfo}, {upsert: true})
     end
     
     logger.debug("Response text for /voice post = #{response.to_s}")
@@ -347,15 +340,15 @@ post '/dial' do
     end
 
     response = Twilio::TwiML::VoiceResponse.new
-    response.dial(
-        record: "record-from-answer",
+    dial = Twilio::TwiML::Dial.new(
+        record: 'record-from-answer',
         caller_id: dial_id,
-        method: "GET",
+        method: 'GET',
         action: "http://yardidhruv-touchpoint.cs62.force.com/Click2Dial/services/apexrest/TwilioCalls/TouchPoint?ToNumber=#{number}"
-      ) do |dial|
-        dial.number(number)
-      end
-
+    )
+    dial.number(number)
+    response.append(dial)
+    
     puts response.to_s
     response.to_s
   rescue => e
@@ -491,7 +484,7 @@ post '/voicemail' do
       callsid = childcall.sid
     end
 
-    customer_call = local_client.account.calls.get(callsid)
+    customer_call = local_client.account.calls(callsid).fetch
     customer_call.update(
       url: "http://yardidhruv-touchpoint.cs62.force.com/Click2Dial/VoiceMailDrop?uniqueid=#{clid}",
       method: "POST"
@@ -521,11 +514,11 @@ post '/request_hold' do
     local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
 
     if calltype == "Inbound"
-      callsid = local_client.account.calls.get(callsid).parent_call_sid
+      callsid = local_client.account.calls(callsid).fetch.parent_call_sid
     end
 
     puts "callsid = #{callsid} for calltype = #{calltype}"
-    customer_call = local_client.account.calls.get(callsid)
+    customer_call = local_client.account.calls(callsid).fetch
     customer_call.update(
       url: "#{request.base_url}/hold",
       method: "POST"
@@ -568,7 +561,7 @@ post '/request_unhold' do
     http_client.ssl_ca_file = '/etc/ssl/certs/ca-certificates.crt'
     local_client = Twilio::REST::Client.new(account_sid, auth_token, http_client: http_client)
     
-    call = local_client.account.calls.get(callsid)
+    call = local_client.account.calls(callsid).fetch
     call.update(
       url: "#{request.base_url}/send_to_agent?target_agent=#{from}",
       method: "POST"
@@ -594,10 +587,10 @@ post '/send_to_agent' do
     puts params
 
     response = Twilio::TwiML::VoiceResponse.new
-    response.dial do |dial|
-        dial.client(target_agent)
-    end
-
+    dial = Twilio::TwiML::Dial.new
+    dial.client(identity: target_agent)
+    response.append(dial)
+    
     puts response.to_s
     response.to_s
   rescue => e
@@ -657,7 +650,7 @@ Thread.new do
         if bestclient
           logger.info("Found best client - routing to #{bestclient} - setting agent to DeQueuing status")
           mongoagents.update_one({_id: bestclient}, {"$set" => {status: "DeQueuing"}})
-          topmember.dequeue(url: ENV['twilio_dqueue_url'])
+          topmember.update(url: ENV['twilio_dqueue_url'], method: 'POST')
         else
           logger.debug("No Ready agents during queue poll # #{$sum}")
         end
