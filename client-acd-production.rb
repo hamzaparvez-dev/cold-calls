@@ -123,7 +123,7 @@ begin
     queueid = @queue.sid
   end
 
-  queue1 = @client.queues.get(queueid)
+  queue1 = @client.queues(queueid).fetch
   logger.info("Calls will be queued to queueid = #{queueid}")
 rescue => e
   logger.error("Failed to setup Twilio queue: #{e.message}")
@@ -640,7 +640,7 @@ Thread.new do
       mongoreadyagents = mongoagents.count_documents({status: "Ready"})
       readycount = mongoreadyagents || 0
 
-      qsize = @client.queues.get(queueid).current_size
+      qsize = @client.queues(queueid).fetch.current_size
 
       if topmember
         bestclient = getlongestidle(false, mongoagents)
