@@ -13,6 +13,7 @@ gem 'mongo', '~> 2.19'
 gem 'bson_ext'
 gem 'eventmachine', '~> 1.2'
 gem 'dotenv'
+gem 'bigdecimal'  # Required for Ruby 3.4+ compatibility
 
 # --- Production & Security Gems ---
 gem 'puma', '~> 5.6'

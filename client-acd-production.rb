@@ -95,12 +95,11 @@ mongocalls = settings.mongo_connection['calls']
 
 ################ TWILIO CONFIG ################
 begin
-  # Reverted to the simple, original initialization.
-  # The global OpenSSL setting at the top of the file will handle the certificate issue.
+  # Initialize Twilio client with new API syntax for gem 5.x
   @client = Twilio::REST::Client.new(account_sid, auth_token)
 
-  account = @client.account
-  @queues = account.queues.list
+  # Use direct access to resources instead of deprecated account method
+  @queues = @client.queues.list
   logger.info("Twilio client initialized successfully")
 rescue => e
   logger.error("Failed to initialize Twilio client: #{e.message}")
@@ -486,7 +485,7 @@ post '/voicemail' do
       callsid = childcall.sid
     end
 
-    customer_call = local_client.account.calls(callsid).fetch
+    customer_call = local_client.calls(callsid).fetch
     customer_call.update(
       url: "http://yardidhruv-touchpoint.cs62.force.com/Click2Dial/VoiceMailDrop?uniqueid=#{clid}",
       method: "POST"
@@ -514,11 +513,11 @@ post '/request_hold' do
     local_client = Twilio::REST::Client.new(account_sid, auth_token)
 
     if calltype == "Inbound"
-      callsid = local_client.account.calls(callsid).fetch.parent_call_sid
+      callsid = local_client.calls(callsid).fetch.parent_call_sid
     end
 
     puts "callsid = #{callsid} for calltype = #{calltype}"
-    customer_call = local_client.account.calls(callsid).fetch
+    customer_call = local_client.calls(callsid).fetch
     customer_call.update(
       url: "#{request.base_url}/hold",
       method: "POST"
@@ -559,7 +558,7 @@ post '/request_unhold' do
 
     local_client = Twilio::REST::Client.new(account_sid, auth_token)
     
-    call = local_client.account.calls(callsid).fetch
+    call = local_client.calls(callsid).fetch
     call.update(
       url: "#{request.base_url}/send_to_agent?target_agent=#{from}",
       method: "POST"
