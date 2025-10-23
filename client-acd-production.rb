@@ -118,12 +118,12 @@ begin
   end
 
   unless queueid
-    @queue = account.queues.create(:friendly_name => qname)
+    @queue = @client.queues.create(:friendly_name => qname)
     logger.info("Created new queue: #{qname}")
     queueid = @queue.sid
   end
 
-  queue1 = account.queues.get(queueid)
+  queue1 = @client.queues.get(queueid)
   logger.info("Calls will be queued to queueid = #{queueid}")
 rescue => e
   logger.error("Failed to setup Twilio queue: #{e.message}")
@@ -640,7 +640,7 @@ Thread.new do
       mongoreadyagents = mongoagents.count_documents({status: "Ready"})
       readycount = mongoreadyagents || 0
 
-      qsize = account.queues.get(queueid).current_size
+      qsize = @client.queues.get(queueid).current_size
 
       if topmember
         bestclient = getlongestidle(false, mongoagents)
