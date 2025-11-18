@@ -182,17 +182,54 @@ get '/token' do
   end
 
   begin
-    # For client-side JS SDK, you need a capability token
-    capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
-    capability.add_scope(Twilio::JWT::ClientCapability::OutgoingScope.new(app_id))
-    capability.add_scope(Twilio::JWT::ClientCapability::IncomingScope.new(client_name))
-    token = capability.to_jwt
+    # Validate required environment variables
+    if account_sid.nil? || account_sid.empty?
+      logger.error("twilio_account_sid environment variable is not set")
+      status 500
+      return "Server configuration error: Twilio Account SID is missing"
+    end
+    
+    if auth_token.nil? || auth_token.empty?
+      logger.error("twilio_account_token environment variable is not set")
+      status 500
+      return "Server configuration error: Twilio Auth Token is missing"
+    end
+    
+    if app_id.nil? || app_id.empty?
+      logger.error("twilio_app_id environment variable is not set")
+      status 500
+      return "Server configuration error: Twilio App ID is missing"
+    end
+    
+    # For client-side JS SDK, use the correct API based on twilio-ruby version
+    # Try the older API first (compatible with older versions)
+    begin
+      capability = Twilio::Util::Capability.new(account_sid, auth_token)
+      capability.allow_client_outgoing(app_id)
+      capability.allow_client_incoming(client_name)
+      token = capability.generate
+      logger.debug("Generated token for client: #{client_name} using Util::Capability")
+    rescue => e1
+      # Fallback to JWT API if Util::Capability doesn't work
+      logger.debug("Util::Capability failed, trying JWT API: #{e1.message}")
+      begin
+        capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
+        capability.add_scope(Twilio::JWT::ClientCapability::OutgoingScope.new(app_id))
+        capability.add_scope(Twilio::JWT::ClientCapability::IncomingScope.new(client_name))
+        token = capability.to_jwt
+        logger.debug("Generated token for client: #{client_name} using JWT::ClientCapability")
+      rescue => e2
+        logger.error("Both token generation methods failed. Util error: #{e1.message}, JWT error: #{e2.message}")
+        raise e2
+      end
+    end
 
     return token
   rescue => e
     logger.error("Failed to generate Twilio token: #{e.message}")
+    logger.error(e.backtrace.join("\n"))
     status 500
-    return "Token generation failed"
+    return "Error generating token: #{e.message}"
   end
 end
 
@@ -437,28 +474,43 @@ end
 
 get '/getcallerid' do
   begin
-    from = sanitize_input(params[:from])
+    from = sanitize_input(params[:from]) || default_client
 
     unless validate_client_name(from)
       logger.warn("Invalid client name for getcallerid request: #{from}")
-      status 400
-      return "Invalid client name"
+      from = default_client
     end
 
     logger.debug("Getting callerid for #{from}")
     callerid = ""
-
-    agent = mongoagents.find({_id: from}).first
-    if agent && agent["callerid"]
-      callerid = agent["callerid"]
-    else
-      callerid = caller_id
+    
+    begin
+      if mongoagents
+        agent = mongoagents.find({_id: from}).first
+        if agent && agent["callerid"]
+          callerid = agent["callerid"]
+        end
+      else
+        logger.warn("MongoDB not connected, cannot retrieve caller ID from database")
+      end
+    rescue => mongo_error
+      logger.warn("Error querying MongoDB for callerid: #{mongo_error.message}")
     end
 
-    puts "returning callerid for #{from} = #{callerid}"
+    unless callerid && !callerid.empty?
+      callerid = caller_id  #set to default env variable callerid
+    end
+
+    unless callerid && !callerid.empty?
+      logger.warn("No caller ID found for #{from}, using empty string")
+      callerid = ""  # Return empty string if no caller ID is configured
+    end
+
+    logger.debug("returning callerid for #{from} = #{callerid}")
     return callerid
   rescue => e
     logger.error("Error in /getcallerid endpoint: #{e.message}")
+    logger.error(e.backtrace.join("\n")) if e.backtrace
     status 500
     "Error retrieving caller ID"
   end
@@ -633,35 +685,67 @@ Thread.new do
 
       $sum += 1
       qsize = 0
+      readycount = 0
 
-      @members = queue1.members
-      topmember = @members.list.first
+      begin
+        @members = queue1.members
+        topmember = @members.list.first
 
-      mongoreadyagents = mongoagents.count_documents({status: "Ready"})
-      readycount = mongoreadyagents || 0
-
-      qsize = @client.queues(queueid).fetch.current_size
-
-      if topmember
-        bestclient = getlongestidle(false, mongoagents)
-        if bestclient
-          logger.info("Found best client - routing to #{bestclient} - setting agent to DeQueuing status")
-          mongoagents.update_one({_id: bestclient}, {"$set" => {status: "DeQueuing"}})
-          topmember.update(url: ENV['twilio_dqueue_url'], method: 'POST')
+        # Only query MongoDB if connection is available
+        if mongoagents
+          begin
+            mongoreadyagents = mongoagents.count_documents({status: "Ready"})
+            readycount = mongoreadyagents || 0
+          rescue => mongo_error
+            logger.warn("MongoDB query failed in queue thread: #{mongo_error.message}")
+            readycount = 0
+          end
         else
-          logger.debug("No Ready agents during queue poll # #{$sum}")
+          readycount = 0
         end
-      end
 
-      settings.sockets.each{|s|
-        msg = {:queuesize => qsize, :readyagents => readycount}.to_json
-        logger.debug("Sending websocket #{msg}");
-        s.send(msg)
-      }
-      logger.debug("run = #{$sum} #{Time.now} qsize = #{qsize} readyagents = #{readycount}")
-    rescue => e
-      logger.error("Error in queue management thread: #{e.message}")
-      sleep(5) # Wait longer on error
+        begin
+          qsize = @client.queues(queueid).fetch.current_size
+        rescue => queue_error
+          logger.warn("Failed to get queue size: #{queue_error.message}")
+          qsize = 0
+        end
+
+        if topmember && mongoagents
+          begin
+            bestclient = getlongestidle(false, mongoagents)
+            if bestclient
+              logger.info("Found best client - routing to #{bestclient} - setting agent to DeQueuing status")
+              mongoagents.update_one({_id: bestclient}, {"$set" => {status: "DeQueuing"}})
+              topmember.update(url: ENV['twilio_dqueue_url'], method: 'POST')
+            else
+              logger.debug("No Ready agents during queue poll # #{$sum}")
+            end
+          rescue => routing_error
+            logger.warn("Error routing call: #{routing_error.message}")
+          end
+        end
+
+        settings.sockets.each{|s|
+          begin
+            msg = {:queuesize => qsize, :readyagents => readycount}.to_json
+            logger.debug("Sending websocket #{msg}");
+            s.send(msg)
+          rescue => ws_error
+            logger.warn("Error sending websocket message: #{ws_error.message}")
+            settings.sockets.delete(s) # Remove dead socket
+          end
+        }
+        logger.debug("run = #{$sum} #{Time.now} qsize = #{qsize} readyagents = #{readycount}")
+      rescue => e
+        logger.error("Error in queue management thread: #{e.message}")
+        logger.error(e.backtrace.join("\n")) if e.backtrace
+        sleep(5) # Wait longer on error
+      end
+    rescue => fatal_error
+      logger.error("Fatal error in queue management thread: #{fatal_error.message}")
+      logger.error(fatal_error.backtrace.join("\n")) if fatal_error.backtrace
+      sleep(10) # Wait even longer on fatal errors
     end
   end
 end
