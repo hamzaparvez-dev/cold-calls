@@ -12,6 +12,7 @@ $(function() {
     SP.username = $('#client_name').text();
     SP.currentCall = null;  //instance variable for tracking current connection
     SP.requestedHold = false; //set if agent requested hold button
+    SP.deviceReady = false; //track if Twilio Device is ready
 
 
  
@@ -35,13 +36,38 @@ $(function() {
       SP.username = useresult;
       console.log("useresult = " + useresult);
 
-      $.get("/token", {"client":SP.username}, function (token) {
-          Twilio.Device.setup(token, {debug: true});
-      });
+      $.get("/token", {"client":SP.username})
+        .done(function (token) {
+          console.log("Token received, setting up Twilio Device...");
+          try {
+            Twilio.Device.setup(token, {debug: true});
+            console.log("Twilio Device setup initiated");
+          } catch (error) {
+            console.error("Error setting up Twilio Device:", error);
+            alert("Failed to initialize phone system: " + (error.message || "Unknown error"));
+          }
+        })
+        .fail(function (xhr, status, error) {
+          console.error("Failed to get token:", status, error);
+          var errorMsg = xhr.responseText || "Server error: Unable to get authentication token. Please check server configuration.";
+          alert("Phone System Error: " + errorMsg);
+          SP.deviceReady = false;
+        });
 
-      $.get("/getcallerid", { "from":SP.username}, function(data) {
-        $("#callerid-entry > input").val(data);
-      });
+      $.get("/getcallerid", { "from":SP.username})
+        .done(function(data) {
+          if (data && data.trim() !== '') {
+            $("#callerid-entry > input").val(data);
+            console.log("Caller ID set to:", data);
+          } else {
+            console.warn("No caller ID returned from server");
+          }
+        })
+        .fail(function (xhr, status, error) {
+          console.error("Failed to get caller ID:", status, error);
+          // Don't show alert for caller ID failure, just log it
+          // The default caller ID from env variable will be used
+        });
 
       SP.functions.startWebSocket();
 
@@ -282,8 +308,55 @@ SP.functions.attachVoiceMailButton = function(conn)
 
     // Call button will make an outbound call (click to dial) to the number entered 
     $("#action-buttons > button.call").click( function( ) {
-      params = {"PhoneNumber": $("#number-entry > input").val(), "CallerId": $("#callerid-entry > input").val()};
-      Twilio.Device.connect(params);
+      var phoneNumber = $("#number-entry > input").val();
+      var callerId = $("#callerid-entry > input").val();
+      
+      // Validate phone number is not empty
+      if (!phoneNumber || phoneNumber.trim() === '') {
+        console.error("No phone number entered");
+        alert("Please enter a phone number");
+        return;
+      }
+      
+      // Clean the phone number (remove spaces, dashes, parentheses, etc.)
+      var cleanedNumber = phoneNumber.replace(/\s+/g, '').replace(/-/g, '').replace(/\(/g, '').replace(/\)/g, '');
+      
+      // Remove + prefix if present to normalize
+      if (cleanedNumber.startsWith('+')) {
+        cleanedNumber = cleanedNumber.substring(1);
+      }
+      
+      // Format the number with country code
+      if (cleanedNumber.length === 10) {
+        // 10-digit US number, add +1
+        cleanedNumber = '+1' + cleanedNumber;
+      } else if (cleanedNumber.length === 11 && cleanedNumber.startsWith('1')) {
+        // 11-digit number starting with 1, add +
+        cleanedNumber = '+' + cleanedNumber;
+      } else {
+        // Other format, ensure it has + prefix
+        cleanedNumber = '+' + cleanedNumber;
+      }
+      
+      console.log("Attempting to call:", cleanedNumber);
+      console.log("Caller ID:", callerId);
+      
+      // Check if Twilio Device is ready
+      if (!Twilio.Device || !SP.deviceReady) {
+        console.error("Twilio Device is not ready. Device exists:", !!Twilio.Device, "Device ready:", SP.deviceReady);
+        alert("Phone system is not ready. Please wait a moment and try again.");
+        return;
+      }
+      
+      var params = {"PhoneNumber": cleanedNumber, "CallerId": callerId || ""};
+      
+      try {
+        Twilio.Device.connect(params);
+        console.log("Call initiated with params:", params);
+      } catch (error) {
+        console.error("Error initiating call:", error);
+        alert("Error making call: " + (error.message || "Unknown error"));
+      }
     });
 
     // Hang up button will hang up any active calls
@@ -329,12 +402,16 @@ SP.functions.attachVoiceMailButton = function(conn)
     
 
     Twilio.Device.ready(function (device) {
+      console.log("Twilio Device is ready");
+      SP.deviceReady = true;
       sforce.interaction.cti.enableClickToDial();
       sforce.interaction.cti.onClickToDial(startCall); 
       SP.functions.ready();
     });
 
     Twilio.Device.offline(function (device) {
+      console.log("Twilio Device went offline");
+      SP.deviceReady = false;
       //make a new status call.. something like.. disconnected instead of notReady ?
       sforce.interaction.cti.disableClickToDial(); 
       SP.functions.notReady();
@@ -344,8 +421,11 @@ SP.functions.attachVoiceMailButton = function(conn)
 
     /* Report any errors on the screen */
     Twilio.Device.error(function (error) {
+        console.error("Twilio Device error:", error);
+        SP.deviceReady = false;
         SP.functions.updateAgentStatusText("ready", error.message);
         SP.functions.hideCallData();
+        alert("Twilio Device Error: " + (error.message || "Unknown error"));
     });
 
     /* Log a message when a call disconnects. */

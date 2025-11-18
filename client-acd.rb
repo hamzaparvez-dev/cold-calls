@@ -24,53 +24,99 @@ caller_id = ENV['twilio_caller_id']  #number your agents will click2dialfrom
 qname = ENV['twilio_queue_name']
 dqueueurl = ENV['twilio_dqueue_url']
 mongohqdbstring = ENV['MONGODB_URI']
-anycallerid = ENV['anycallerid'] || "none"   #If you set this in your ENV anycallerid=inline the callerid box will be displayed to users.  To use anycallerid (agents set their own caller id), your Twilio Account must be provisioned.  So default is false, agents wont' be able to use any callerid. 
+anycallerid = ENV['anycallerid'] || "none"   #If you set this in your ENV anycallerid=inline the callerid box will be displayed to users.  To use anycallerid (agents set their own caller id), your Twilio Account must be provisioned.  So default is false, agents wont' be able to use any callerid.
+
+# Validate required environment variables at startup
+missing_vars = []
+missing_vars << "twilio_account_sid" if account_sid.nil? || account_sid.empty?
+missing_vars << "twilio_account_token" if auth_token.nil? || auth_token.empty?
+missing_vars << "twilio_app_id" if app_id.nil? || app_id.empty?
+missing_vars << "MONGODB_URI" if mongohqdbstring.nil? || mongohqdbstring.empty?
+
+if !missing_vars.empty?
+  logger.error("Missing required environment variables: #{missing_vars.join(', ')}")
+  logger.error("Please set these environment variables before starting the application")
+  # Don't exit, but log the error - the endpoints will handle the errors gracefully
+end 
 
 ########### DB Setup  ###################
 configure do
-  db = URI.parse(mongohqdbstring)
-  db_name = db.path.gsub(/^\//, '')   
-  @conn = Mongo::Connection.new(db.host, db.port).db(db_name)
-  @conn.authenticate(db.user, db.password) unless (db.user.nil? || db.user.nil?)
-  set :mongo_connection, @conn
+  begin
+    if mongohqdbstring && !mongohqdbstring.empty?
+      db = URI.parse(mongohqdbstring)
+      db_name = db.path.gsub(/^\//, '')   
+      @conn = Mongo::Connection.new(db.host, db.port).db(db_name)
+      @conn.authenticate(db.user, db.password) unless (db.user.nil? || db.password.nil?)
+      set :mongo_connection, @conn
+      logger.info("MongoDB connection established")
+    else
+      logger.error("MONGODB_URI environment variable is not set")
+      set :mongo_connection, nil
+    end
+  rescue => e
+    logger.error("Error connecting to MongoDB: #{e.message}")
+    logger.error(e.backtrace.join("\n"))
+    set :mongo_connection, nil
+  end
 end
 # agents will be stored in 'agents' collection
-mongoagents = settings.mongo_connection['agents']
-mongocalls = settings.mongo_connection['calls']
+if settings.mongo_connection
+  mongoagents = settings.mongo_connection['agents']
+  mongocalls = settings.mongo_connection['calls']
+else
+  logger.warn("MongoDB not connected, database features will not work")
+  mongoagents = nil
+  mongocalls = nil
+end
 
 ##### end of db config #######
 
 
 ################ TWILLO CONFIG ################
 
-#Twilio rest client
-@client = Twilio::REST::Client.new(account_sid, auth_token)
-account = @client.account
-@queues = account.queues.list
+#Twilio rest client - only initialize if credentials are available
+begin
+  if account_sid && !account_sid.empty? && auth_token && !auth_token.empty?
+    @client = Twilio::REST::Client.new(account_sid, auth_token)
+    account = @client.account
+    @queues = account.queues.list
 
-##### Twilio Queue setup:####
-# qname is a configuration vairable, but we need the queueid for this queue (we should have a helper method for this!!)
-queueid = nil
-@queues.each do |q|
-  logger.debug("Queue for this account = #{q.friendly_name}")
-  if q.friendly_name == qname
-    queueid = q.sid
-    logger.info("Queueid = #{queueid} for #{q.friendly_name}")
+    ##### Twilio Queue setup:####
+    # qname is a configuration vairable, but we need the queueid for this queue (we should have a helper method for this!!)
+    queueid = nil
+    if qname && !qname.empty?
+      @queues.each do |q|
+        logger.debug("Queue for this account = #{q.friendly_name}")
+        if q.friendly_name == qname
+          queueid = q.sid
+          logger.info("Queueid = #{queueid} for #{q.friendly_name}")
+        end
+      end 
+
+      unless queueid
+        #didn't find qname, create it
+        @queue = account.queues.create(:friendly_name => qname)
+        logger.info("Created queue #{qname}")
+        queueid = @queue.sid
+      end
+
+      ## all that work for a queueid... this should be replaced by a help library method!
+      queue1 = account.queues.get(queueid)
+      logger.info("Calls will be queued to queueid = #{queueid}")
+    else
+      logger.warn("twilio_queue_name not set, queue functionality will be limited")
+    end
+  else
+    logger.warn("Twilio credentials not configured, Twilio features will not work")
+    @client = nil
+    queueid = nil
   end
-end 
-
-unless queueid
-  #didn't find qname, create it
-  @queue = account.queues.create(:friendly_name => qname)
-  logger.info("Created queue #{qname}")
-  queueid = @queue.sid
+rescue => e
+  logger.error("Error initializing Twilio client: #{e.message}")
+  logger.error(e.backtrace.join("\n"))
+  @client = nil
+  queueid = nil
 end
-
-## all that work for a queueid... this should be replaced by a help library method!
-queue1 = account.queues.get(queueid)
-
-
-logger.info("Calls will be queued to queueid = #{queueid}")
 
 ## used when a 
 default_client =  "default_client"
@@ -99,16 +145,45 @@ end
 
 ## Returns a token for a Twilio client
 get '/token' do
-  client_name = params[:client]
-  if client_name.nil?
-        client_name = default_client
+  begin
+    client_name = params[:client]
+    if client_name.nil?
+      client_name = default_client
+    end
+    
+    # Validate required environment variables
+    if account_sid.nil? || account_sid.empty?
+      logger.error("twilio_account_sid environment variable is not set")
+      status 500
+      return "Server configuration error: Twilio Account SID is missing"
+    end
+    
+    if auth_token.nil? || auth_token.empty?
+      logger.error("twilio_account_token environment variable is not set")
+      status 500
+      return "Server configuration error: Twilio Auth Token is missing"
+    end
+    
+    if app_id.nil? || app_id.empty?
+      logger.error("twilio_app_id environment variable is not set")
+      status 500
+      return "Server configuration error: Twilio App ID is missing"
+    end
+    
+    capability = Twilio::Util::Capability.new account_sid, auth_token
+    # Create an application sid at twilio.com/user/account/apps and use it here
+    capability.allow_client_outgoing app_id 
+    capability.allow_client_incoming client_name
+    token = capability.generate
+    
+    logger.debug("Generated token for client: #{client_name}")
+    return token
+  rescue => e
+    logger.error("Failed to generate Twilio token: #{e.message}")
+    logger.error(e.backtrace.join("\n"))
+    status 500
+    return "Error generating token: #{e.message}"
   end
-  capability = Twilio::Util::Capability.new account_sid, auth_token
-      # Create an application sid at twilio.com/user/account/apps and use it here
-      capability.allow_client_outgoing app_id 
-      capability.allow_client_incoming client_name
-      token = capability.generate
-  return token
 end 
   
 ## WEBSOCKETS: Accepts a inbound websocket connection. Connection will be used to send messages to the browser, and detect disconnects
@@ -302,23 +377,45 @@ end
 
 
 get '/getcallerid' do
+  begin
     from = params[:from]
+    if from.nil?
+      from = default_client
+    end
 
     logger.debug("Getting callerid for #{from}")
     callerid = ""
     
-    agent = mongoagents.find_one ({_id: from})
-    if agent
-       callerid = agent["callerid"]
+    begin
+      if mongoagents
+        agent = mongoagents.find_one ({_id: from})
+        if agent && agent["callerid"]
+          callerid = agent["callerid"]
+        end
+      else
+        logger.warn("MongoDB not connected, cannot retrieve caller ID from database")
+      end
+    rescue => e
+      logger.warn("Error querying MongoDB for callerid: #{e.message}")
     end
 
-    unless callerid
+    unless callerid && !callerid.empty?
       callerid = caller_id  #set to default env variable callerid
     end
 
-    puts "returning callerid for #{from} = #{callerid}"
-    return callerid
+    unless callerid && !callerid.empty?
+      logger.warn("No caller ID found for #{from}, using default")
+      callerid = ""  # Return empty string if no caller ID is configured
+    end
 
+    logger.debug("returning callerid for #{from} = #{callerid}")
+    return callerid
+  rescue => e
+    logger.error("Error in /getcallerid endpoint: #{e.message}")
+    logger.error(e.backtrace.join("\n"))
+    status 500
+    return ""
+  end
 end
 
 #ajax request from Web UI, acccepts a casllsid, do a REST call to redirect to /hold
