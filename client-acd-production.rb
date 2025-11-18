@@ -76,22 +76,37 @@ logger.info("Starting Twilio Dialer Application")
 logger.info("Environment: #{ENV['RACK_ENV'] || 'development'}")
 
 ########### DB Setup  ###################
-begin
-  configure do
-    # Use modern MongoDB driver
-    @client = Mongo::Client.new(mongohqdbstring)
-    @conn = @client.database
-    set :mongo_connection, @conn
-    logger.info("MongoDB connection established")
+configure do
+  begin
+    if mongohqdbstring && !mongohqdbstring.empty?
+      # Use modern MongoDB driver
+      @mongo_client = Mongo::Client.new(
+        mongohqdbstring,
+        server_selection_timeout: 5,
+        connect_timeout: 5
+      )
+      @conn = @mongo_client.database
+      set :mongo_connection, @conn
+      logger.info("MongoDB connection established")
+    else
+      logger.warn("MONGODB_URI is not set. Continuing without MongoDB features.")
+      set :mongo_connection, nil
+    end
+  rescue => e
+    logger.error("Failed to connect to MongoDB: #{e.message}")
+    logger.warn("Continuing without MongoDB. Agent presence and queue data will be limited.")
+    set :mongo_connection, nil
   end
-rescue => e
-  logger.error("Failed to connect to MongoDB: #{e.message}")
-  exit 1
 end
 
 # Collections
-mongoagents = settings.mongo_connection['agents']
-mongocalls = settings.mongo_connection['calls']
+if settings.respond_to?(:mongo_connection) && settings.mongo_connection
+  mongoagents = settings.mongo_connection['agents']
+  mongocalls = settings.mongo_connection['calls']
+else
+  mongoagents = nil
+  mongocalls = nil
+end
 
 ################ TWILIO CONFIG ################
 begin
@@ -249,20 +264,23 @@ get '/websocket' do
       end
 
       logger.info("Client #{clientname} connected from Websockets")
+      settings.sockets << ws
 
-      begin
-        mongoagents.update_one(
-          {_id: clientname},
-          {
-            "$set" => {status: "LoggingIn", readytime: Time.now.to_f},
-            "$inc" => {:currentclientcount => 1}
-          },
-          {upsert: true}
-        )
-        settings.sockets << ws
-      rescue => e
-        logger.error("Failed to update agent in database: #{e.message}")
-        ws.close
+      if mongoagents
+        begin
+          mongoagents.update_one(
+            {_id: clientname},
+            {
+              "$set" => {status: "LoggingIn", readytime: Time.now.to_f},
+              "$inc" => {:currentclientcount => 1}
+            },
+            {upsert: true}
+          )
+        rescue => e
+          logger.error("Failed to update agent in database: #{e.message}")
+        end
+      else
+        logger.warn("MongoDB unavailable; skipping agent login tracking for #{clientname}")
       end
     end
 
@@ -279,15 +297,19 @@ get '/websocket' do
 
         settings.sockets.delete(ws)
 
-        begin
-          mongoagents.update_one({_id: clientname}, {"$inc" => {currentclientcount: -1}})
+        if mongoagents
+          begin
+            mongoagents.update_one({_id: clientname}, {"$inc" => {currentclientcount: -1}})
 
-          mongonewclientcount = mongoagents.find({_id: clientname}).first
-          if mongonewclientcount && mongonewclientcount["currentclientcount"] < 1
-            mongoagents.update_one({_id: clientname}, {"$set" => {status: "LOGGEDOUT"}})
+            mongonewclientcount = mongoagents.find({_id: clientname}).first
+            if mongonewclientcount && mongonewclientcount["currentclientcount"] < 1
+              mongoagents.update_one({_id: clientname}, {"$set" => {status: "LOGGEDOUT"}})
+            end
+          rescue => e
+            logger.error("Failed to update agent status on disconnect: #{e.message}")
           end
-        rescue => e
-          logger.error("Failed to update agent status on disconnect: #{e.message}")
+        else
+          logger.warn("MongoDB unavailable; skipping disconnect tracking for #{clientname}")
         end
       end
     end
@@ -326,8 +348,16 @@ post '/voice' do
         response.append(dial)
 
         logger.debug("dialing client #{client_name}")
-        agentinfo = {_id: sid, agent: client_name, status: "Ringing"}
-        mongocalls.update_one({_id: sid}, {"$set" => agentinfo}, {upsert: true})
+        if mongocalls
+          begin
+            agentinfo = {_id: sid, agent: client_name, status: "Ringing"}
+            mongocalls.update_one({_id: sid}, {"$set" => agentinfo}, {upsert: true})
+          rescue => e
+            logger.warn("Failed to record ringing call in MongoDB: #{e.message}")
+          end
+        else
+          logger.warn("MongoDB unavailable; skipping ringing call tracking for #{client_name}")
+        end
     end
 
     logger.debug("Response text for /voice post = #{response.to_s}")
@@ -346,10 +376,18 @@ post '/handledialcallstatus' do
 
     response = Twilio::TwiML::VoiceResponse.new
     if params['DialCallStatus'] == "no-answer"
-      mongosidinfo = mongocalls.find({_id: sid}).first
-      if mongosidinfo
-        mongoagent = mongosidinfo["agent"]
-        mongoagents.update_one({_id: mongoagent}, {"$set" => {status: "Missed"}}, {upsert: false})
+      if mongocalls && mongoagents
+        begin
+          mongosidinfo = mongocalls.find({_id: sid}).first
+          if mongosidinfo
+            mongoagent = mongosidinfo["agent"]
+            mongoagents.update_one({_id: mongoagent}, {"$set" => {status: "Missed"}}, {upsert: false})
+          end
+        rescue => e
+          logger.warn("Failed to mark missed call in MongoDB: #{e.message}")
+        end
+      else
+        logger.warn("MongoDB unavailable; skipping missed-call tracking")
       end
       response.redirect('/voice')
     else
@@ -413,10 +451,18 @@ post '/track' do
     end
 
     logger.debug("For client #{from} setting status to #{status}")
-    mongoagents.update_one(
-      {_id: from},
-      {"$set" => {status: status, readytime: Time.now.to_f}}
-    )
+    if mongoagents
+      begin
+        mongoagents.update_one(
+          {_id: from},
+          {"$set" => {status: status, readytime: Time.now.to_f}}
+        )
+      rescue => e
+        logger.warn("Failed to update agent status in MongoDB: #{e.message}")
+      end
+    else
+      logger.warn("MongoDB unavailable; skipping status update for #{from}")
+    end
 
     return ""
   rescue => e
@@ -438,11 +484,21 @@ get '/status' do
       return "Invalid client name"
     end
 
-    agentstatus = mongoagents.find({_id: from}).first
-    if agentstatus
-      agentstatus = agentstatus["status"]
+    if mongoagents
+      begin
+        agentstatus = mongoagents.find({_id: from}).first
+        if agentstatus
+          agentstatus = agentstatus["status"]
+        end
+        return agentstatus || "Unknown"
+      rescue => e
+        logger.warn("Failed to retrieve status from MongoDB: #{e.message}")
+        return "Unknown"
+      end
+    else
+      logger.warn("MongoDB unavailable; returning default status for #{from}")
+      return "Unknown"
     end
-    return agentstatus || "Unknown"
   rescue => e
     logger.error("Error in /status endpoint: #{e.message}")
     status 500
@@ -462,7 +518,15 @@ post '/setcallerid' do
     end
 
     logger.debug("Updating callerid for #{from} to #{callerid}")
-    mongoagents.update_one({_id: from}, {"$set" => {callerid: callerid}})
+    if mongoagents
+      begin
+        mongoagents.update_one({_id: from}, {"$set" => {callerid: callerid}})
+      rescue => e
+        logger.warn("Failed to update caller ID in MongoDB: #{e.message}")
+      end
+    else
+      logger.warn("MongoDB unavailable; skipping caller ID update for #{from}")
+    end
 
     return ""
   rescue => e
@@ -652,6 +716,8 @@ end
 # Helper method to get longest idle agent
 def getlongestidle(callrouting, mongoagents)
   begin
+    return nil unless mongoagents
+
     queryfor = []
 
     if callrouting == true
