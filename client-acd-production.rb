@@ -70,6 +70,7 @@ caller_id = ENV['twilio_caller_id']
 qname = ENV['twilio_queue_name']
 dqueueurl = ENV['twilio_dqueue_url']
 mongohqdbstring = ENV['MONGODB_URI']
+mongo_disabled = ENV['DISABLE_MONGO'] == 'true'
 anycallerid = ENV['anycallerid'] || "none"
 
 logger.info("Starting Twilio Dialer Application")
@@ -77,25 +78,30 @@ logger.info("Environment: #{ENV['RACK_ENV'] || 'development'}")
 
 ########### DB Setup  ###################
 configure do
-  begin
-    if mongohqdbstring && !mongohqdbstring.empty?
-      # Use modern MongoDB driver
-      @mongo_client = Mongo::Client.new(
-        mongohqdbstring,
-        server_selection_timeout: 5,
-        connect_timeout: 5
-      )
-      @conn = @mongo_client.database
-      set :mongo_connection, @conn
-      logger.info("MongoDB connection established")
-    else
-      logger.warn("MONGODB_URI is not set. Continuing without MongoDB features.")
+  if mongo_disabled
+    logger.warn("DISABLE_MONGO is true; skipping MongoDB initialization. Agent tracking will be limited.")
+    set :mongo_connection, nil
+  else
+    begin
+      if mongohqdbstring && !mongohqdbstring.empty?
+        # Use modern MongoDB driver
+        @mongo_client = Mongo::Client.new(
+          mongohqdbstring,
+          server_selection_timeout: 5,
+          connect_timeout: 5
+        )
+        @conn = @mongo_client.database
+        set :mongo_connection, @conn
+        logger.info("MongoDB connection established")
+      else
+        logger.warn("MONGODB_URI is not set. Continuing without MongoDB features.")
+        set :mongo_connection, nil
+      end
+    rescue => e
+      logger.error("Failed to connect to MongoDB: #{e.message}")
+      logger.warn("Continuing without MongoDB. Agent presence and queue data will be limited.")
       set :mongo_connection, nil
     end
-  rescue => e
-    logger.error("Failed to connect to MongoDB: #{e.message}")
-    logger.warn("Continuing without MongoDB. Agent presence and queue data will be limited.")
-    set :mongo_connection, nil
   end
 end
 
