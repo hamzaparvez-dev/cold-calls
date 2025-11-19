@@ -222,28 +222,18 @@ get '/token' do
       return "Server configuration error: Twilio App ID is missing"
     end
     
-    # For client-side JS SDK, use the correct API based on twilio-ruby version
-    # Try the older API first (compatible with older versions)
-    begin
-      capability = Twilio::Util::Capability.new(account_sid, auth_token)
-      capability.allow_client_outgoing(app_id)
-      capability.allow_client_incoming(client_name)
-      token = capability.generate
-      logger.debug("Generated token for client: #{client_name} using Util::Capability")
-    rescue => e1
-      # Fallback to JWT API if Util::Capability doesn't work
-      logger.debug("Util::Capability failed, trying JWT API: #{e1.message}")
-      begin
-        capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
-        capability.add_scope(Twilio::JWT::ClientCapability::OutgoingScope.new(app_id))
-        capability.add_scope(Twilio::JWT::ClientCapability::IncomingScope.new(client_name))
-        token = capability.to_jwt
-        logger.debug("Generated token for client: #{client_name} using JWT::ClientCapability")
-      rescue => e2
-        logger.error("Both token generation methods failed. Util error: #{e1.message}, JWT error: #{e2.message}")
-        raise e2
-      end
-    end
+    capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
+    capability.add_scope(
+      Twilio::JWT::ClientCapability::Scope::OutgoingClient.new(
+        app_id,
+        client_name: client_name
+      )
+    )
+    capability.add_scope(
+      Twilio::JWT::ClientCapability::Scope::IncomingClient.new(client_name)
+    )
+    token = capability.to_jwt
+    logger.debug("Generated token for client: #{client_name}")
 
     return token
   rescue => e
