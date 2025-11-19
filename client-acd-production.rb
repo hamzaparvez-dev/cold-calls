@@ -84,12 +84,14 @@ configure do
   else
     begin
       if mongohqdbstring && !mongohqdbstring.empty?
-        # Use modern MongoDB driver
-        @mongo_client = Mongo::Client.new(
-          mongohqdbstring,
+        # Use modern MongoDB driver with TLS configuration for Render
+        mongo_options = {
           server_selection_timeout: 5,
-          connect_timeout: 5
-        )
+          connect_timeout: 5,
+          tls: true,
+          tls_ca_file: '/etc/ssl/certs/ca-certificates.crt'
+        }
+        @mongo_client = Mongo::Client.new(mongohqdbstring, mongo_options)
         @conn = @mongo_client.database
         set :mongo_connection, @conn
         logger.info("MongoDB connection established")
