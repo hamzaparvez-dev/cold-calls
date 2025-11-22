@@ -81,28 +81,44 @@ configure do
   if mongo_disabled
     logger.warn("DISABLE_MONGO is true; skipping MongoDB initialization. Agent tracking will be limited.")
     set :mongo_connection, nil
+    @mongo_client = nil
   else
     begin
       if mongohqdbstring && !mongohqdbstring.empty?
         # Use modern MongoDB driver with TLS configuration for Render
+        # Disable background monitoring to prevent retry spam
         mongo_options = {
           server_selection_timeout: 5,
           connect_timeout: 5,
+          socket_timeout: 5,
           tls: true,
-          tls_ca_file: '/etc/ssl/certs/ca-certificates.crt'
+          tls_ca_file: '/etc/ssl/certs/ca-certificates.crt',
+          heartbeat_frequency: 30,
+          max_pool_size: 1,
+          min_pool_size: 0
         }
         @mongo_client = Mongo::Client.new(mongohqdbstring, mongo_options)
+        # Test connection immediately
+        @mongo_client.database.command(ping: 1)
         @conn = @mongo_client.database
         set :mongo_connection, @conn
         logger.info("MongoDB connection established")
       else
         logger.warn("MONGODB_URI is not set. Continuing without MongoDB features.")
         set :mongo_connection, nil
+        @mongo_client = nil
       end
     rescue => e
       logger.error("Failed to connect to MongoDB: #{e.message}")
-      logger.warn("Continuing without MongoDB. Agent presence and queue data will be limited.")
+      logger.warn("Continuing without MongoDB. Agent presence and queue data will be limited. Calls will still work.")
+      # Close client if it was created to stop background retries
+      begin
+        @mongo_client.close if defined?(@mongo_client) && @mongo_client
+      rescue => close_error
+        logger.debug("Error closing MongoDB client: #{close_error.message}")
+      end
       set :mongo_connection, nil
+      @mongo_client = nil
     end
   end
 end
