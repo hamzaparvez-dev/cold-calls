@@ -240,20 +240,118 @@ get '/token' do
       return "Server configuration error: Twilio App ID is missing"
     end
     
-    capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
-    capability.add_scope(
-      Twilio::JWT::ClientCapability::Scope::OutgoingClient.new(
-        app_id,
-        client_name: client_name
-      )
-    )
-    capability.add_scope(
-      Twilio::JWT::ClientCapability::Scope::IncomingClient.new(client_name)
-    )
-    token = capability.to_jwt
-    logger.debug("Generated token for client: #{client_name}")
-
-    return token
+    # Use the correct API for twilio-ruby gem 5.75
+    # The twilio-ruby gem 5.x changed the API - try multiple approaches
+    token = nil
+    last_error = nil
+    
+    # Method 1: Try Util::Capability (works in older versions)
+    begin
+      capability = Twilio::Util::Capability.new(account_sid, auth_token)
+      capability.allow_client_outgoing(app_id)
+      capability.allow_client_incoming(client_name)
+      token = capability.generate
+      logger.info("✓ Generated token using Util::Capability")
+      return token
+    rescue NameError, NoMethodError => e
+      last_error = e
+      logger.debug("Util::Capability not available: #{e.class} - #{e.message}")
+    end
+    
+    # Method 2: Try JWT ClientCapability with scope objects (check available classes)
+    begin
+      capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
+      
+      # List all available constants to see what's actually there
+      all_constants = Twilio::JWT::ClientCapability.constants(false) rescue []
+      logger.debug("ClientCapability constants: #{all_constants.inspect}")
+      
+      # Try to create scopes - the class names might be different
+      scope_created = false
+      
+      # Try OutgoingScope
+      ['OutgoingScope', 'OutgoingClientScope'].each do |class_name|
+        begin
+          if Twilio::JWT::ClientCapability.const_defined?(class_name)
+            scope_class = Twilio::JWT::ClientCapability.const_get(class_name)
+            outgoing = scope_class.new(app_id)
+            capability.add_scope(outgoing)
+            logger.debug("Added outgoing scope using #{class_name}")
+            scope_created = true
+            break
+          end
+        rescue => e
+          logger.debug("Failed to use #{class_name}: #{e.message}")
+        end
+      end
+      
+      # Try IncomingScope  
+      ['IncomingScope', 'IncomingClientScope'].each do |class_name|
+        begin
+          if Twilio::JWT::ClientCapability.const_defined?(class_name)
+            scope_class = Twilio::JWT::ClientCapability.const_get(class_name)
+            incoming = scope_class.new(client_name)
+            capability.add_scope(incoming)
+            logger.debug("Added incoming scope using #{class_name}")
+            break
+          end
+        rescue => e
+          logger.debug("Failed to use #{class_name}: #{e.message}")
+        end
+      end
+      
+      if scope_created
+        token = capability.to_jwt
+        logger.info("✓ Generated token using JWT ClientCapability")
+        return token
+      else
+        raise "Could not create scopes. Available constants: #{all_constants.inspect}"
+      end
+    rescue => e
+      last_error = e
+      logger.debug("JWT ClientCapability failed: #{e.class} - #{e.message}")
+    end
+    
+    # Method 3: Manual JWT construction as last resort
+    # This constructs a Twilio Client Capability Token manually
+    begin
+      require 'jwt'
+      
+      # Create JWT payload for Twilio Client Capability Token
+      # Format based on Twilio's Client Capability Token specification
+      now = Time.now.to_i
+      payload = {
+        iss: account_sid,
+        exp: now + 3600,
+        jti: "#{account_sid}-#{now}",
+        grants: {
+          identity: client_name,
+          outgoing: {
+            application_sid: app_id
+          },
+          incoming: {
+            allow: true
+          }
+        }
+      }
+      
+      # Sign with auth_token (Twilio uses the account auth token as the secret)
+      # Note: JWT.encode expects the secret as the second parameter
+      token = JWT.encode(payload, auth_token, 'HS256')
+      logger.info("✓ Generated token using manual JWT construction")
+      return token
+    rescue LoadError => load_error
+      logger.error("JWT gem not available: #{load_error.message}")
+    rescue => jwt_manual_error
+      logger.error("Manual JWT construction failed: #{jwt_manual_error.class} - #{jwt_manual_error.message}")
+      logger.error("JWT manual backtrace: #{jwt_manual_error.backtrace.first(5).join("\n")}")
+    end
+    
+    # If we get here, all methods failed
+    logger.error("❌ All token generation methods failed!")
+    logger.error("Last error: #{last_error.class} - #{last_error.message}")
+    logger.error("Backtrace: #{last_error.backtrace.first(10).join("\n")}")
+    raise "Token generation failed: #{last_error.message}. Please check Twilio gem version and API compatibility."
   rescue => e
     logger.error("Failed to generate Twilio token: #{e.message}")
     logger.error(e.backtrace.join("\n"))

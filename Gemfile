@@ -7,6 +7,7 @@ ruby '3.3.0'
 # --- Core Application Gems (Updated for Compatibility) ---
 gem 'sinatra', '~> 3.0'
 gem 'twilio-ruby', '~> 5.75' # CRITICAL: This line is the fix
+gem 'jwt' # For manual JWT token construction if needed
 gem 'json'
 gem 'sinatra-websocket'
 gem 'mongo', '~> 2.19'
