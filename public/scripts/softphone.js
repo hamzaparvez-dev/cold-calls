@@ -13,7 +13,6 @@ $(function() {
     SP.currentCall = null;  //instance variable for tracking current connection
     SP.requestedHold = false; //set if agent requested hold button
     SP.deviceReady = false; //track if Twilio Device is ready
-    SP.device = null; // Twilio Device instance (Voice SDK 2.0)
 
 
  
@@ -41,23 +40,13 @@ $(function() {
         .done(function (token) {
           console.log("Token received, setting up Twilio Device...");
           try {
-            // Voice SDK 2.0: Create new Device instance
-            // Check if Device is available globally or under Twilio namespace
-            var DeviceClass = (typeof Twilio !== 'undefined' && Twilio.Device) ? Twilio.Device : 
-                              (typeof Device !== 'undefined') ? Device : null;
-            
-            if (!DeviceClass) {
-              throw new Error("Twilio Voice SDK Device class not found. Please ensure the SDK is loaded.");
+            // Use Twilio Client SDK (simpler API)
+            if (typeof Twilio === 'undefined' || !Twilio.Device) {
+              throw new Error("Twilio SDK not loaded. Please refresh the page.");
             }
             
-            SP.device = new DeviceClass(token, {
-              debug: true,
-              codecPreferences: ['opus', 'pcmu']
-            });
-            console.log("Twilio Device created");
-            
-            // Set up event handlers for Voice SDK 2.0
-            setupDeviceEventHandlers();
+            Twilio.Device.setup(token, {debug: true});
+            console.log("Twilio Device setup initiated");
           } catch (error) {
             console.error("Error setting up Twilio Device:", error);
             alert("Failed to initialize phone system: " + (error.message || "Unknown error"));
@@ -91,156 +80,8 @@ $(function() {
 
     }
 
-    // Set up event handlers for Voice SDK 2.0
-    function setupDeviceEventHandlers() {
-      if (!SP.device) {
-        console.error("Device not initialized");
-        return;
-      }
-
-      // Device registered (ready)
-      SP.device.on('registered', function() {
-        console.log("Twilio Device is ready");
-        SP.deviceReady = true;
-        if (typeof sforce !== 'undefined' && sforce.interaction && sforce.interaction.cti) {
-          sforce.interaction.cti.enableClickToDial();
-          sforce.interaction.cti.onClickToDial(startCall);
-        }
-        SP.functions.ready();
-      });
-
-      // Device unregistered (offline)
-      SP.device.on('unregistered', function() {
-        console.log("Twilio Device went offline");
-        SP.deviceReady = false;
-        if (typeof sforce !== 'undefined' && sforce.interaction && sforce.interaction.cti) {
-          sforce.interaction.cti.disableClickToDial();
-        }
-        SP.functions.notReady();
-        SP.functions.hideCallData();
-      });
-
-      // Device error
-      SP.device.on('error', function(error) {
-        console.error("Twilio Device error:", error);
-        SP.deviceReady = false;
-        SP.functions.updateAgentStatusText("ready", error.message);
-        SP.functions.hideCallData();
-        alert("Twilio Device Error: " + (error.message || "Unknown error"));
-      });
-
-      // Incoming call
-      SP.device.on('incoming', function(conn) {
-        console.log("Incoming call received");
-        
-        // Update agent status
-        if (typeof sforce !== 'undefined' && sforce.interaction) {
-          sforce.interaction.setVisible(true);  //pop up CTI console
-        }
-        var fromNumber = conn.parameters ? conn.parameters.From : null;
-        SP.functions.updateAgentStatusText("ready", fromNumber, true);
-        
-        // Enable answer button and attach to incoming call
-        SP.functions.attachAnswerButton(conn);
-        SP.functions.setRingState();
-
-        if (SP.requestedHold == true) {
-          //auto answer
-          SP.requestedHold = false;
-          $("#action-buttons > button.answer").click();
-        }
-
-        var inboundnum = cleanInboundTwilioNumber(fromNumber);
-        var sid = conn.parameters ? conn.parameters.CallSid : null;
-        
-        //sfdc screenpop fields are specific to new contact screenpop
-        if (typeof sforce !== 'undefined' && sforce.interaction) {
-          sforce.interaction.searchAndScreenPop(inboundnum, 'con10=' + inboundnum + '&con12=' + inboundnum + '&name_firstcon2=' + name,'inbound');
-        }
-
-        // Handle call events
-        conn.on('accept', function() {
-          console.log("Call accepted");
-          handleCallConnected(conn);
-        });
-
-        conn.on('cancel', function() {
-          console.log("Incoming call canceled");
-          SP.functions.detachAnswerButton();
-          SP.functions.detachHoldButtons();
-          SP.functions.hideCallData();
-          SP.functions.notReady();
-          SP.functions.setIdleState();
-          $(".number").unbind();
-          SP.currentCall = null;
-        });
-
-        conn.on('disconnect', function() {
-          console.log("Call disconnected");
-          handleCallDisconnected(conn);
-        });
-      });
-    }
-
-    // Handle call connected (for both incoming and outgoing)
-    function handleCallConnected(conn) {
-      console.dir(conn);
-      var status = "";
-      var callSid = conn.parameters ? conn.parameters.CallSid : null;
-      console.log("callSid------>" + callSid);
-      console.log("connectingforcallsid...");
-      
-      var callNum = null;
-      if (conn.parameters && conn.parameters.From) {
-        callNum = conn.parameters.From;
-        status = "Call From: " + callNum;
-        SP.calltype = "Inbound";
-      } else {
-        status = "Outbound call";
-        SP.calltype = "Outbound";
-      }
-
-      console.dir(conn);
-
-      SP.functions.updateAgentStatusText("onCall", status);
-      SP.functions.setOnCallState();
-      SP.functions.detachAnswerButton();
-
-      SP.currentCall = conn;
-      SP.functions.attachMuteButton(conn);
-      SP.functions.attachHoldButton(conn, SP.calltype);
-      SP.functions.attachVoiceMailButton(conn);
-
-      //send status info
-      $.post("/track", { "from":SP.username, "status":"OnCall" }, function(data) {
-        // Status updated
-      });
-
-      // Handle call disconnect
-      conn.on('disconnect', function() {
-        handleCallDisconnected(conn);
-      });
-    }
-
-    // Handle call disconnected
-    function handleCallDisconnected(conn) {
-      console.log("disconnecting...");
-      SP.functions.updateAgentStatusText("ready", "Call ended");
-
-      SP.state.callNumber = null;
-      
-      // deactivate answer button
-      SP.functions.detachAnswerButton();
-      SP.functions.detachMuteButton();
-      SP.functions.detachHoldButtons();
-      SP.functions.setIdleState(); 
-      
-      SP.currentCall = null;
-      
-      // return to waiting state
-      SP.functions.hideCallData();
-      SP.functions.ready();
-    }
+    // Old event handlers removed - now using setupDeviceEventHandlers() for Voice SDK 2.0
+    // The new event handlers are set up in setupDeviceEventHandlers() function above
 
 
     SP.functions.startWebSocket = function() {
@@ -510,8 +351,8 @@ SP.functions.attachVoiceMailButton = function(conn)
       console.log("Caller ID:", callerId);
       
       // Check if Twilio Device is ready
-      if (!SP.device || !SP.deviceReady) {
-        console.error("Twilio Device is not ready. Device exists:", !!SP.device, "Device ready:", SP.deviceReady);
+      if (!Twilio.Device || !SP.deviceReady) {
+        console.error("Twilio Device is not ready. Device exists:", !!Twilio.Device, "Device ready:", SP.deviceReady);
         alert("Phone system is not ready. Please wait a moment and try again.");
         return;
       }
@@ -519,14 +360,8 @@ SP.functions.attachVoiceMailButton = function(conn)
       var params = {"PhoneNumber": cleanedNumber, "CallerId": callerId || ""};
       
       try {
-        // Voice SDK 2.0: connect returns a Promise
-        SP.device.connect({params: params}).then(function(conn) {
-          console.log("Call initiated with params:", params);
-          handleCallConnected(conn);
-        }).catch(function(error) {
-          console.error("Error initiating call:", error);
-          alert("Error making call: " + (error.message || "Unknown error"));
-        });
+        Twilio.Device.connect(params);
+        console.log("Call initiated with params:", params);
       } catch (error) {
         console.error("Error initiating call:", error);
         alert("Error making call: " + (error.message || "Unknown error"));
@@ -535,11 +370,8 @@ SP.functions.attachVoiceMailButton = function(conn)
 
     // Hang up button will hang up any active calls
     $("#action-buttons > button.hangup").click( function( ) {
-      if (SP.device) {
-        SP.device.disconnectAll();
-      }
-      if (SP.currentCall) {
-        SP.currentCall.disconnect();
+      if (Twilio.Device) {
+        Twilio.Device.disconnectAll();
       }
     });
     
@@ -578,11 +410,100 @@ SP.functions.attachVoiceMailButton = function(conn)
     //this will only be called inside of salesforce
     
 
-    
+    // Twilio Device event handlers (Client SDK)
+    Twilio.Device.ready(function (device) {
+      console.log("Twilio Device is ready");
+      SP.deviceReady = true;
+      if (typeof sforce !== 'undefined' && sforce.interaction && sforce.interaction.cti) {
+        sforce.interaction.cti.enableClickToDial();
+        sforce.interaction.cti.onClickToDial(startCall);
+      }
+      SP.functions.ready();
+    });
 
-    // Old event handlers removed - now using setupDeviceEventHandlers() for Voice SDK 2.0
-    // The new event handlers are set up in setupDeviceEventHandlers() function above
+    Twilio.Device.offline(function (device) {
+      console.log("Twilio Device went offline");
+      SP.deviceReady = false;
+      if (typeof sforce !== 'undefined' && sforce.interaction && sforce.interaction.cti) {
+        sforce.interaction.cti.disableClickToDial();
+      }
+      SP.functions.notReady();
+      SP.functions.hideCallData();
+    });
 
+    Twilio.Device.error(function (error) {
+      console.error("Twilio Device error:", error);
+      SP.deviceReady = false;
+      SP.functions.updateAgentStatusText("ready", error.message);
+      SP.functions.hideCallData();
+      alert("Twilio Device Error: " + (error.message || "Unknown error"));
+    });
+
+    Twilio.Device.disconnect(function (conn) {
+      console.log("disconnecting...");
+      SP.functions.updateAgentStatusText("ready", "Call ended");
+      SP.state.callNumber = null;
+      SP.functions.detachAnswerButton();
+      SP.functions.detachMuteButton();
+      SP.functions.detachHoldButtons();
+      SP.functions.setIdleState(); 
+      SP.currentCall = null;
+      SP.functions.hideCallData();
+      SP.functions.ready();
+    });
+
+    Twilio.Device.connect(function (conn) {
+      console.dir(conn);
+      var status = "";
+      var callSid = conn.parameters ? conn.parameters.CallSid : null;
+      console.log("callSid------>" + callSid);
+      var callNum = null;
+      if (conn.parameters && conn.parameters.From) {
+        callNum = conn.parameters.From;
+        status = "Call From: " + callNum;
+        SP.calltype = "Inbound";
+      } else {
+        status = "Outbound call";
+        SP.calltype = "Outbound";
+      }
+      SP.functions.updateAgentStatusText("onCall", status);
+      SP.functions.setOnCallState();
+      SP.functions.detachAnswerButton();
+      SP.currentCall = conn;
+      SP.functions.attachMuteButton(conn);
+      SP.functions.attachHoldButton(conn, SP.calltype);
+      SP.functions.attachVoiceMailButton(conn);
+      $.post("/track", { "from":SP.username, "status":"OnCall" }, function(data) {});
+    });
+
+    Twilio.Device.incoming(function (conn) {
+      if (typeof sforce !== 'undefined' && sforce.interaction) {
+        sforce.interaction.setVisible(true);
+      }
+      var fromNumber = conn.parameters ? conn.parameters.From : null;
+      SP.functions.updateAgentStatusText("ready", fromNumber, true);
+      SP.functions.attachAnswerButton(conn);
+      SP.functions.setRingState();
+      if (SP.requestedHold == true) {
+        SP.requestedHold = false;
+        $("#action-buttons > button.answer").click();
+      }
+      var inboundnum = cleanInboundTwilioNumber(fromNumber);
+      if (typeof sforce !== 'undefined' && sforce.interaction) {
+        sforce.interaction.searchAndScreenPop(inboundnum, 'con10=' + inboundnum + '&con12=' + inboundnum + '&name_firstcon2=' + name,'inbound');
+      }
+    });
+
+    Twilio.Device.cancel(function(conn) {
+      console.log("Call canceled");
+      SP.functions.detachAnswerButton();
+      SP.functions.detachHoldButtons();
+      SP.functions.hideCallData();
+      SP.functions.notReady();
+      SP.functions.setIdleState();
+      $(".number").unbind();
+      SP.currentCall = null;
+    });
 
     $("#callerid-entry > input").change( function() {
         $.post("/setcallerid", { "from":SP.username, "callerid": $("#callerid-entry > input").val() });
@@ -643,13 +564,8 @@ SP.functions.attachVoiceMailButton = function(conn)
 
             //alert("cleanednumber = " + cleanednumber);  
             params = {"PhoneNumber": cleanednumber, "CallerId": $("#callerid-entry > input").val()};
-            if (SP.device && SP.deviceReady) {
-              SP.device.connect({params: params}).then(function(conn) {
-                handleCallConnected(conn);
-              }).catch(function(error) {
-                console.error("Error making call:", error);
-                alert("Error making call: " + (error.message || "Unknown error"));
-              });
+            if (Twilio.Device && SP.deviceReady) {
+              Twilio.Device.connect(params);
             } else {
               alert("Phone system is not ready. Please wait a moment and try again.");
             }

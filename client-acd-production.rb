@@ -3,7 +3,7 @@ require 'sinatra'
 require 'sinatra-websocket'
 require 'twilio-ruby'
 require 'json/ext'
-require 'mongo'
+# MongoDB removed - using simple in-memory storage
 require 'logger'
 require 'dotenv/load'
 require 'rack/protection'
@@ -52,7 +52,6 @@ required_env_vars = %w[
   twilio_caller_id
   twilio_queue_name
   twilio_dqueue_url
-  MONGODB_URI
 ]
 
 missing_vars = required_env_vars.select { |var| ENV[var].nil? || ENV[var].empty? }
@@ -69,68 +68,16 @@ app_id = ENV['twilio_app_id']
 caller_id = ENV['twilio_caller_id']
 qname = ENV['twilio_queue_name']
 dqueueurl = ENV['twilio_dqueue_url']
-mongohqdbstring = ENV['MONGODB_URI']
-mongo_disabled = ENV['DISABLE_MONGO'] == 'true'
 anycallerid = ENV['anycallerid'] || "none"
+
+# Simple in-memory storage (replaces MongoDB)
+$agent_status = {} # {clientname => {status: "Ready", callerid: "+1234567890"}}
 
 logger.info("Starting Twilio Dialer Application")
 logger.info("Environment: #{ENV['RACK_ENV'] || 'development'}")
 
-########### DB Setup  ###################
-configure do
-  if mongo_disabled
-    logger.warn("DISABLE_MONGO is true; skipping MongoDB initialization. Agent tracking will be limited.")
-    set :mongo_connection, nil
-    @mongo_client = nil
-  else
-    begin
-      if mongohqdbstring && !mongohqdbstring.empty?
-        # Use modern MongoDB driver with TLS configuration for Render
-        # Disable background monitoring to prevent retry spam
-        mongo_options = {
-          server_selection_timeout: 5,
-          connect_timeout: 5,
-          socket_timeout: 5,
-          tls: true,
-          tls_ca_file: '/etc/ssl/certs/ca-certificates.crt',
-          heartbeat_frequency: 30,
-          max_pool_size: 1,
-          min_pool_size: 0
-        }
-        @mongo_client = Mongo::Client.new(mongohqdbstring, mongo_options)
-        # Test connection immediately
-        @mongo_client.database.command(ping: 1)
-        @conn = @mongo_client.database
-        set :mongo_connection, @conn
-        logger.info("MongoDB connection established")
-      else
-        logger.warn("MONGODB_URI is not set. Continuing without MongoDB features.")
-        set :mongo_connection, nil
-        @mongo_client = nil
-      end
-    rescue => e
-      logger.error("Failed to connect to MongoDB: #{e.message}")
-      logger.warn("Continuing without MongoDB. Agent presence and queue data will be limited. Calls will still work.")
-      # Close client if it was created to stop background retries
-      begin
-        @mongo_client.close if defined?(@mongo_client) && @mongo_client
-      rescue => close_error
-        logger.debug("Error closing MongoDB client: #{close_error.message}")
-      end
-      set :mongo_connection, nil
-      @mongo_client = nil
-    end
-  end
-end
-
-# Collections
-if settings.respond_to?(:mongo_connection) && settings.mongo_connection
-  mongoagents = settings.mongo_connection['agents']
-  mongocalls = settings.mongo_connection['calls']
-else
-  mongoagents = nil
-  mongocalls = nil
-end
+########### Simple In-Memory Storage (MongoDB Removed) ###################
+logger.info("Using in-memory storage for agent status (MongoDB removed)")
 
 ################ TWILIO CONFIG ################
 begin
@@ -378,22 +325,11 @@ get '/websocket' do
       logger.info("Client #{clientname} connected from Websockets")
       settings.sockets << ws
 
-      if mongoagents
-        begin
-          mongoagents.update_one(
-            {_id: clientname},
-            {
-              "$set" => {status: "LoggingIn", readytime: Time.now.to_f},
-              "$inc" => {:currentclientcount => 1}
-            },
-            {upsert: true}
-          )
-        rescue => e
-          logger.error("Failed to update agent in database: #{e.message}")
-        end
-      else
-        logger.warn("MongoDB unavailable; skipping agent login tracking for #{clientname}")
-      end
+      # Update in-memory storage
+      $agent_status[clientname] ||= {status: "LoggingIn", readytime: Time.now.to_f, currentclientcount: 0}
+      $agent_status[clientname][:currentclientcount] = ($agent_status[clientname][:currentclientcount] || 0) + 1
+      $agent_status[clientname][:status] = "LoggingIn"
+      $agent_status[clientname][:readytime] = Time.now.to_f
     end
 
     ws.onmessage do |msg|
@@ -409,19 +345,12 @@ get '/websocket' do
 
         settings.sockets.delete(ws)
 
-        if mongoagents
-          begin
-            mongoagents.update_one({_id: clientname}, {"$inc" => {currentclientcount: -1}})
-
-            mongonewclientcount = mongoagents.find({_id: clientname}).first
-            if mongonewclientcount && mongonewclientcount["currentclientcount"] < 1
-              mongoagents.update_one({_id: clientname}, {"$set" => {status: "LOGGEDOUT"}})
-            end
-          rescue => e
-            logger.error("Failed to update agent status on disconnect: #{e.message}")
+        # Update in-memory storage
+        if $agent_status[clientname]
+          $agent_status[clientname][:currentclientcount] = ($agent_status[clientname][:currentclientcount] || 1) - 1
+          if $agent_status[clientname][:currentclientcount] < 1
+            $agent_status[clientname][:status] = "LOGGEDOUT"
           end
-        else
-          logger.warn("MongoDB unavailable; skipping disconnect tracking for #{clientname}")
         end
       end
     end
@@ -435,7 +364,7 @@ post '/voice' do
     callerid = params[:Caller]
     addtoq = 0
 
-    bestclient = getlongestidle(true, mongoagents)
+    bestclient = getlongestidle(true)
     if bestclient
       logger.debug("Routing incoming voice call to best agent = #{bestclient}")
       client_name = bestclient
@@ -460,16 +389,7 @@ post '/voice' do
         response.append(dial)
 
         logger.debug("dialing client #{client_name}")
-        if mongocalls
-          begin
-            agentinfo = {_id: sid, agent: client_name, status: "Ringing"}
-            mongocalls.update_one({_id: sid}, {"$set" => agentinfo}, {upsert: true})
-          rescue => e
-            logger.warn("Failed to record ringing call in MongoDB: #{e.message}")
-          end
-        else
-          logger.warn("MongoDB unavailable; skipping ringing call tracking for #{client_name}")
-        end
+        # Call tracking removed (MongoDB removed)
     end
 
     logger.debug("Response text for /voice post = #{response.to_s}")
@@ -488,19 +408,7 @@ post '/handledialcallstatus' do
 
     response = Twilio::TwiML::VoiceResponse.new
     if params['DialCallStatus'] == "no-answer"
-      if mongocalls && mongoagents
-        begin
-          mongosidinfo = mongocalls.find({_id: sid}).first
-          if mongosidinfo
-            mongoagent = mongosidinfo["agent"]
-            mongoagents.update_one({_id: mongoagent}, {"$set" => {status: "Missed"}}, {upsert: false})
-          end
-        rescue => e
-          logger.warn("Failed to mark missed call in MongoDB: #{e.message}")
-        end
-      else
-        logger.warn("MongoDB unavailable; skipping missed-call tracking")
-      end
+      # Missed call tracking removed (MongoDB removed)
       response.redirect('/voice')
     else
       response.hangup
@@ -563,18 +471,10 @@ post '/track' do
     end
 
     logger.debug("For client #{from} setting status to #{status}")
-    if mongoagents
-      begin
-        mongoagents.update_one(
-          {_id: from},
-          {"$set" => {status: status, readytime: Time.now.to_f}}
-        )
-      rescue => e
-        logger.warn("Failed to update agent status in MongoDB: #{e.message}")
-      end
-    else
-      logger.warn("MongoDB unavailable; skipping status update for #{from}")
-    end
+    # Update in-memory storage
+    $agent_status[from] ||= {}
+    $agent_status[from][:status] = status
+    $agent_status[from][:readytime] = Time.now.to_f
 
     return ""
   rescue => e
@@ -596,21 +496,9 @@ get '/status' do
       return "Invalid client name"
     end
 
-    if mongoagents
-      begin
-        agentstatus = mongoagents.find({_id: from}).first
-        if agentstatus
-          agentstatus = agentstatus["status"]
-        end
-        return agentstatus || "Unknown"
-      rescue => e
-        logger.warn("Failed to retrieve status from MongoDB: #{e.message}")
-        return "Unknown"
-      end
-    else
-      logger.warn("MongoDB unavailable; returning default status for #{from}")
-      return "Unknown"
-    end
+    # Get from in-memory storage
+    agent_data = $agent_status[from]
+    return agent_data && agent_data[:status] ? agent_data[:status] : "Unknown"
   rescue => e
     logger.error("Error in /status endpoint: #{e.message}")
     status 500
@@ -630,15 +518,9 @@ post '/setcallerid' do
     end
 
     logger.debug("Updating callerid for #{from} to #{callerid}")
-    if mongoagents
-      begin
-        mongoagents.update_one({_id: from}, {"$set" => {callerid: callerid}})
-      rescue => e
-        logger.warn("Failed to update caller ID in MongoDB: #{e.message}")
-      end
-    else
-      logger.warn("MongoDB unavailable; skipping caller ID update for #{from}")
-    end
+    # Update in-memory storage
+    $agent_status[from] ||= {}
+    $agent_status[from][:callerid] = callerid
 
     return ""
   rescue => e
@@ -660,17 +542,10 @@ get '/getcallerid' do
     logger.debug("Getting callerid for #{from}")
     callerid = ""
     
-    begin
-      if mongoagents
-        agent = mongoagents.find({_id: from}).first
-        if agent && agent["callerid"]
-          callerid = agent["callerid"]
-        end
-      else
-        logger.warn("MongoDB not connected, cannot retrieve caller ID from database")
-      end
-    rescue => mongo_error
-      logger.warn("Error querying MongoDB for callerid: #{mongo_error.message}")
+    # Get from in-memory storage
+    agent_data = $agent_status[from]
+    if agent_data && agent_data[:callerid]
+      callerid = agent_data[:callerid]
     end
 
     unless callerid && !callerid.empty?
@@ -825,30 +700,21 @@ post '/send_to_agent' do
   end
 end
 
-# Helper method to get longest idle agent
-def getlongestidle(callrouting, mongoagents)
+# Helper method to get longest idle agent (using in-memory storage)
+def getlongestidle(callrouting)
   begin
-    return nil unless mongoagents
-
-    queryfor = []
-
-    if callrouting == true
-      queryfor = [{status: "Ready"}, {status: "DeQueing"}]
-    else
-      queryfor = [{status: "Ready"}]
+    statuses = callrouting == true ? ["Ready", "DeQueing"] : ["Ready"]
+    
+    # Find agents with matching status and sort by readytime
+    matching_agents = $agent_status.select do |name, data|
+      data && data[:status] && statuses.include?(data[:status])
     end
-
-    mongoreadyagent = mongoagents.find(
-      {"$or" => queryfor}
-    ).sort(readytime: 1).first
-
-    mongolongestidleagent = ""
-    if mongoreadyagent
-      mongolongestidleagent = mongoreadyagent["_id"]
-    else
-      mongolongestidleagent = nil
-    end
-    return mongolongestidleagent
+    
+    return nil if matching_agents.empty?
+    
+    # Sort by readytime (oldest first = longest idle)
+    longest_idle = matching_agents.min_by { |name, data| data[:readytime] || 0 }
+    return longest_idle ? longest_idle[0] : nil
   rescue => e
     logger.error("Error in getlongestidle: #{e.message}")
     return nil
@@ -869,18 +735,8 @@ Thread.new do
         @members = queue1.members
         topmember = @members.list.first
 
-        # Only query MongoDB if connection is available
-        if mongoagents
-          begin
-            mongoreadyagents = mongoagents.count_documents({status: "Ready"})
-            readycount = mongoreadyagents || 0
-          rescue => mongo_error
-            logger.warn("MongoDB query failed in queue thread: #{mongo_error.message}")
-            readycount = 0
-          end
-        else
-          readycount = 0
-        end
+        # Count ready agents from in-memory storage
+        readycount = $agent_status.count { |k, v| v && v[:status] == "Ready" }
 
         begin
           qsize = @client.queues(queueid).fetch.current_size
@@ -889,12 +745,12 @@ Thread.new do
           qsize = 0
         end
 
-        if topmember && mongoagents
+        if topmember
           begin
-            bestclient = getlongestidle(false, mongoagents)
+            bestclient = getlongestidle(false)
             if bestclient
               logger.info("Found best client - routing to #{bestclient} - setting agent to DeQueuing status")
-              mongoagents.update_one({_id: bestclient}, {"$set" => {status: "DeQueuing"}})
+              $agent_status[bestclient][:status] = "DeQueuing" if $agent_status[bestclient]
               topmember.update(url: ENV['twilio_dqueue_url'], method: 'POST')
             else
               logger.debug("No Ready agents during queue poll # #{$sum}")
