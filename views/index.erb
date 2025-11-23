@@ -4,39 +4,24 @@
   <title>Twilio Softphone</title>
 
 
-  <!-- Twilio Client SDK - Try multiple CDN sources -->
+  <!-- Twilio Voice SDK 2.0 - Required (old Client SDK is deprecated) -->
+  <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.0.0/dist/twilio.min.js"></script>
   <script type="text/javascript">
-    // Try loading from primary CDN
-    var twilioScript = document.createElement('script');
-    twilioScript.type = 'text/javascript';
-    twilioScript.src = 'https://sdk.twilio.com/js/client/v1.14/twilio.min.js';
-    twilioScript.onload = function() {
-      console.log('Twilio SDK loaded from sdk.twilio.com');
-      window.twilioSDKLoaded = true;
-      if (typeof Twilio !== 'undefined') {
-        console.log('Twilio object is available');
-      } else {
-        console.error('Twilio SDK loaded but Twilio object not found');
-      }
-    };
-    twilioScript.onerror = function() {
-      console.warn('Primary CDN failed, trying fallback...');
-      // Fallback to media.twiliocdn.com
-      var fallbackScript = document.createElement('script');
-      fallbackScript.type = 'text/javascript';
-      fallbackScript.src = 'https://media.twiliocdn.com/sdk/js/client/v1.14/twilio.min.js';
-      fallbackScript.onload = function() {
-        console.log('Twilio SDK loaded from media.twiliocdn.com (fallback)');
-        window.twilioSDKLoaded = true;
-      };
-      fallbackScript.onerror = function() {
-        console.error('Both Twilio SDK CDN sources failed to load');
-        window.twilioSDKLoaded = false;
-        alert('Failed to load Twilio SDK. Please check your internet connection and refresh the page.');
-      };
-      document.head.appendChild(fallbackScript);
-    };
-    document.head.appendChild(twilioScript);
+    // Verify SDK loaded
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        if (typeof Twilio !== 'undefined' && Twilio.Device) {
+          console.log('✓ Twilio Voice SDK 2.0 loaded successfully');
+          window.twilioSDKLoaded = true;
+        } else if (typeof Device !== 'undefined') {
+          console.log('✓ Twilio Voice SDK 2.0 loaded (Device available)');
+          window.twilioSDKLoaded = true;
+        } else {
+          console.error('✗ Twilio Voice SDK 2.0 failed to load');
+          window.twilioSDKLoaded = false;
+        }
+      }, 1000);
+    });
   </script>  
   
 
