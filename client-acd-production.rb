@@ -260,32 +260,26 @@ get '/token' do
     end
     
     # Method 3: Manual JWT construction as last resort
-    # This constructs a Twilio Client Capability Token manually
+    # This constructs a Twilio Client Capability Token manually using the OLD format
+    # The old Client SDK expects a specific token structure
     begin
       require 'jwt'
       
-      # Create JWT payload for Twilio Client Capability Token
-      # Format based on Twilio's Client Capability Token specification
+      # Create JWT payload for OLD Twilio Client SDK format
+      # The old format uses 'scope' not 'grants'
       now = Time.now.to_i
       payload = {
         iss: account_sid,
         exp: now + 3600,
-        jti: "#{account_sid}-#{now}",
-        grants: {
-          identity: client_name,
-          outgoing: {
-            application_sid: app_id
-          },
-          incoming: {
-            allow: true
-          }
-        }
+        scope: [
+          "scope:client:outgoing?appSid=#{app_id}&clientName=#{client_name}",
+          "scope:client:incoming?clientName=#{client_name}"
+        ].join(" ")
       }
       
-      # Sign with auth_token (Twilio uses the account auth token as the secret)
-      # Note: JWT.encode expects the secret as the second parameter
+      # Sign with auth_token
       token = JWT.encode(payload, auth_token, 'HS256')
-      logger.info("✓ Generated token using manual JWT construction")
+      logger.info("✓ Generated token using manual JWT construction (old format)")
       return token
     rescue LoadError => load_error
       logger.error("JWT gem not available: #{load_error.message}")
