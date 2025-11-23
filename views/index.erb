@@ -4,10 +4,40 @@
   <title>Twilio Softphone</title>
 
 
-  <!-- Twilio Client SDK v1.14 - Official Twilio CDN (works reliably) -->
-  <script type="text/javascript" src="https://media.twiliocdn.com/sdk/js/client/v1.14/twilio.min.js" 
-    onload="console.log('Twilio SDK loaded'); window.twilioSDKLoaded = true;"
-    onerror="console.error('Failed to load Twilio SDK'); window.twilioSDKLoaded = false;"></script>  
+  <!-- Twilio Client SDK - Try multiple CDN sources -->
+  <script type="text/javascript">
+    // Try loading from primary CDN
+    var twilioScript = document.createElement('script');
+    twilioScript.type = 'text/javascript';
+    twilioScript.src = 'https://sdk.twilio.com/js/client/v1.14/twilio.min.js';
+    twilioScript.onload = function() {
+      console.log('Twilio SDK loaded from sdk.twilio.com');
+      window.twilioSDKLoaded = true;
+      if (typeof Twilio !== 'undefined') {
+        console.log('Twilio object is available');
+      } else {
+        console.error('Twilio SDK loaded but Twilio object not found');
+      }
+    };
+    twilioScript.onerror = function() {
+      console.warn('Primary CDN failed, trying fallback...');
+      // Fallback to media.twiliocdn.com
+      var fallbackScript = document.createElement('script');
+      fallbackScript.type = 'text/javascript';
+      fallbackScript.src = 'https://media.twiliocdn.com/sdk/js/client/v1.14/twilio.min.js';
+      fallbackScript.onload = function() {
+        console.log('Twilio SDK loaded from media.twiliocdn.com (fallback)');
+        window.twilioSDKLoaded = true;
+      };
+      fallbackScript.onerror = function() {
+        console.error('Both Twilio SDK CDN sources failed to load');
+        window.twilioSDKLoaded = false;
+        alert('Failed to load Twilio SDK. Please check your internet connection and refresh the page.');
+      };
+      document.head.appendChild(fallbackScript);
+    };
+    document.head.appendChild(twilioScript);
+  </script>  
   
 
   <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>

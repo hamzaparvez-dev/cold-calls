@@ -39,35 +39,34 @@ $(function() {
       $.get("/token", {"client":SP.username})
         .done(function (token) {
           console.log("Token received, setting up Twilio Device...");
-          try {
-            // Wait a bit for SDK to load if it's still loading
-            if (typeof Twilio === 'undefined') {
-              console.warn("Twilio SDK not loaded yet, waiting...");
-              setTimeout(function() {
-                if (typeof Twilio === 'undefined' || !Twilio.Device) {
-                  alert("Twilio SDK failed to load. Please refresh the page.");
-                  SP.deviceReady = false;
-                  return;
-                }
+          
+          // Wait for SDK to load with retries
+          function setupDeviceWithRetry(retryCount) {
+            retryCount = retryCount || 0;
+            const maxRetries = 20; // Wait up to 10 seconds (20 * 500ms)
+            
+            if (typeof Twilio !== 'undefined' && Twilio.Device) {
+              try {
                 Twilio.Device.setup(token, {debug: true});
-                console.log("Twilio Device setup initiated (after delay)");
+                console.log("Twilio Device setup initiated successfully");
+              } catch (error) {
+                console.error("Error setting up Twilio Device:", error);
+                alert("Failed to initialize phone system: " + (error.message || "Unknown error"));
+                SP.deviceReady = false;
+              }
+            } else if (retryCount < maxRetries) {
+              console.log("Waiting for Twilio SDK to load... (attempt " + (retryCount + 1) + "/" + maxRetries + ")");
+              setTimeout(function() {
+                setupDeviceWithRetry(retryCount + 1);
               }, 500);
-              return;
+            } else {
+              console.error("Twilio SDK failed to load after " + maxRetries + " attempts");
+              alert("Twilio SDK failed to load. Please refresh the page and check your internet connection.");
+              SP.deviceReady = false;
             }
-            
-            // Use old Client SDK API
-            if (!Twilio.Device) {
-              throw new Error("Twilio.Device not available. SDK may not be fully loaded.");
-            }
-            
-            Twilio.Device.setup(token, {debug: true});
-            console.log("Twilio Device setup initiated");
-          } catch (error) {
-            console.error("Error setting up Twilio Device:", error);
-            console.error("Error stack:", error.stack);
-            alert("Failed to initialize phone system: " + (error.message || "Unknown error"));
-            SP.deviceReady = false;
           }
+          
+          setupDeviceWithRetry();
         })
         .fail(function (xhr, status, error) {
           console.error("Failed to get token:", status, error);
