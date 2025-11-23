@@ -4,25 +4,53 @@
   <title>Twilio Softphone</title>
 
 
-  <!-- Twilio Voice SDK 2.0 - Required (old Client SDK is deprecated) -->
-  <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.0.0/dist/twilio.min.js"></script>
-  <script type="text/javascript">
-    // Verify SDK loaded
-    window.addEventListener('load', function() {
-      setTimeout(function() {
-        if (typeof Twilio !== 'undefined' && Twilio.Device) {
-          console.log('✓ Twilio Voice SDK 2.0 loaded successfully');
-          window.twilioSDKLoaded = true;
-        } else if (typeof Device !== 'undefined') {
-          console.log('✓ Twilio Voice SDK 2.0 loaded (Device available)');
-          window.twilioSDKLoaded = true;
-        } else {
-          console.error('✗ Twilio Voice SDK 2.0 failed to load');
-          window.twilioSDKLoaded = false;
-        }
-      }, 1000);
-    });
-  </script>  
+  <!-- Twilio Voice SDK 2.0 - Use ES Module via esm.sh (browser-compatible) -->
+  <script type="module">
+    try {
+      import('https://esm.sh/@twilio/voice-sdk@2.0.0').then(function(module) {
+        var Device = module.Device;
+        
+        // Make Device available globally for non-module scripts
+        window.Twilio = window.Twilio || {};
+        window.Twilio.Device = Device;
+        window.Device = Device;
+        window.twilioSDKLoaded = true;
+        
+        console.log('✓ Twilio Voice SDK 2.0 loaded successfully via ES Module (esm.sh)');
+        
+        // Dispatch custom event when SDK is ready
+        window.dispatchEvent(new CustomEvent('twilioSDKReady'));
+      }).catch(function(error) {
+        console.error('Failed to load Voice SDK 2.0 via ES Module:', error);
+        // Try fallback
+        loadFallbackSDK();
+      });
+    } catch (error) {
+      console.error('ES Module not supported, trying fallback:', error);
+      loadFallbackSDK();
+    }
+    
+    function loadFallbackSDK() {
+      console.warn('Loading fallback: Old Client SDK v1.14');
+      var script = document.createElement('script');
+      script.src = 'https://sdk.twilio.com/js/client/v1.14/twilio.min.js';
+      script.onload = function() {
+        console.log('Fallback: Old Client SDK loaded');
+        window.twilioSDKLoaded = true;
+        window.dispatchEvent(new CustomEvent('twilioSDKReady'));
+      };
+      script.onerror = function() {
+        console.error('Both ES Module and fallback failed');
+        window.twilioSDKLoaded = false;
+      };
+      document.head.appendChild(script);
+    }
+  </script>
+  
+  <!-- Non-module fallback for older browsers -->
+  <noscript>
+    <script src="https://sdk.twilio.com/js/client/v1.14/twilio.min.js"></script>
+  </noscript>  
   
 
   <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
