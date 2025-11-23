@@ -4,53 +4,29 @@
   <title>Twilio Softphone</title>
 
 
-  <!-- Twilio Voice SDK 2.0 - Use ES Module via esm.sh (browser-compatible) -->
+  <!-- Twilio Voice SDK 2.0 - Use skypack.dev (works better than esm.sh) -->
   <script type="module">
-    try {
-      import('https://esm.sh/@twilio/voice-sdk@2.0.0').then(function(module) {
-        var Device = module.Device;
-        
-        // Make Device available globally for non-module scripts
-        window.Twilio = window.Twilio || {};
-        window.Twilio.Device = Device;
-        window.Device = Device;
-        window.twilioSDKLoaded = true;
-        
-        console.log('✓ Twilio Voice SDK 2.0 loaded successfully via ES Module (esm.sh)');
-        
-        // Dispatch custom event when SDK is ready
-        window.dispatchEvent(new CustomEvent('twilioSDKReady'));
-      }).catch(function(error) {
-        console.error('Failed to load Voice SDK 2.0 via ES Module:', error);
-        // Try fallback
-        loadFallbackSDK();
-      });
-    } catch (error) {
-      console.error('ES Module not supported, trying fallback:', error);
-      loadFallbackSDK();
-    }
+    import { Device } from 'https://cdn.skypack.dev/@twilio/voice-sdk@2.0.0';
     
-    function loadFallbackSDK() {
-      console.warn('Loading fallback: Old Client SDK v1.14');
-      var script = document.createElement('script');
-      script.src = 'https://sdk.twilio.com/js/client/v1.14/twilio.min.js';
-      script.onload = function() {
-        console.log('Fallback: Old Client SDK loaded');
-        window.twilioSDKLoaded = true;
-        window.dispatchEvent(new CustomEvent('twilioSDKReady'));
-      };
-      script.onerror = function() {
-        console.error('Both ES Module and fallback failed');
-        window.twilioSDKLoaded = false;
-      };
-      document.head.appendChild(script);
-    }
+    // Make Device available globally for non-module scripts
+    window.Twilio = window.Twilio || {};
+    window.Twilio.Device = Device;
+    window.Device = Device;
+    window.twilioSDKLoaded = true;
+    
+    console.log('✓ Twilio Voice SDK 2.0 loaded successfully via Skypack');
+    window.dispatchEvent(new CustomEvent('twilioSDKReady'));
   </script>
   
-  <!-- Non-module fallback for older browsers -->
-  <noscript>
-    <script src="https://sdk.twilio.com/js/client/v1.14/twilio.min.js"></script>
-  </noscript>  
+  <script type="text/javascript">
+    // Fallback if ES modules fail
+    setTimeout(function() {
+      if (!window.twilioSDKLoaded || (!window.Twilio || !window.Twilio.Device) && !window.Device) {
+        console.error('ES Module failed, Voice SDK 2.0 is required. Old Client SDK is deprecated.');
+        alert('Failed to load Twilio Voice SDK 2.0. Please refresh the page or check your internet connection.');
+      }
+    }, 5000);
+  </script>  
   
 
   <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>

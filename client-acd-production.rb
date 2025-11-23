@@ -187,31 +187,14 @@ get '/token' do
       return "Server configuration error: Twilio App ID is missing"
     end
     
-    # Use the correct API for twilio-ruby gem 5.75
-    # The twilio-ruby gem 5.x changed the API - try multiple approaches
+    # Voice SDK 2.0 requires Access Tokens, but can also use Capability Tokens
+    # We'll generate a Capability Token that works with Voice SDK 2.0
     token = nil
     last_error = nil
     
-    # Method 1: Try Util::Capability (works in older versions)
-    begin
-      capability = Twilio::Util::Capability.new(account_sid, auth_token)
-      capability.allow_client_outgoing(app_id)
-      capability.allow_client_incoming(client_name)
-      token = capability.generate
-      logger.info("✓ Generated token using Util::Capability")
-      return token
-    rescue NameError, NoMethodError => e
-      last_error = e
-      logger.debug("Util::Capability not available: #{e.class} - #{e.message}")
-    end
-    
-    # Method 2: Try JWT ClientCapability with scope objects (check available classes)
+    # Method 1: Try JWT ClientCapability (works with Voice SDK 2.0)
     begin
       capability = Twilio::JWT::ClientCapability.new(account_sid, auth_token)
-      
-      # List all available constants to see what's actually there
-      all_constants = Twilio::JWT::ClientCapability.constants(false) rescue []
-      logger.debug("ClientCapability constants: #{all_constants.inspect}")
       
       # Try to create scopes - the class names might be different
       scope_created = false
@@ -249,24 +232,32 @@ get '/token' do
       
       if scope_created
         token = capability.to_jwt
-        logger.info("✓ Generated token using JWT ClientCapability")
+        logger.info("✓ Generated token using JWT ClientCapability (compatible with Voice SDK 2.0)")
         return token
-      else
-        raise "Could not create scopes. Available constants: #{all_constants.inspect}"
       end
     rescue => e
       last_error = e
       logger.debug("JWT ClientCapability failed: #{e.class} - #{e.message}")
     end
     
-    # Method 3: Manual JWT construction as last resort
-    # This constructs a Twilio Client Capability Token manually using the OLD format
-    # The old Client SDK expects a specific token structure
+    # Method 2: Try Util::Capability (fallback, but may not work with Voice SDK 2.0)
+    begin
+      capability = Twilio::Util::Capability.new(account_sid, auth_token)
+      capability.allow_client_outgoing(app_id)
+      capability.allow_client_incoming(client_name)
+      token = capability.generate
+      logger.info("✓ Generated token using Util::Capability (fallback)")
+      return token
+    rescue NameError, NoMethodError => e
+      last_error = e
+      logger.debug("Util::Capability not available: #{e.class} - #{e.message}")
+    end
+    
+    # Method 3: Manual JWT construction - Capability Token format
     begin
       require 'jwt'
       
-      # Create JWT payload for OLD Twilio Client SDK format
-      # The old format uses 'scope' not 'grants'
+      # Create JWT payload for Twilio Capability Token (works with Voice SDK 2.0)
       now = Time.now.to_i
       payload = {
         iss: account_sid,
@@ -279,7 +270,7 @@ get '/token' do
       
       # Sign with auth_token
       token = JWT.encode(payload, auth_token, 'HS256')
-      logger.info("✓ Generated token using manual JWT construction (old format)")
+      logger.info("✓ Generated token using manual JWT construction (Capability Token)")
       return token
     rescue LoadError => load_error
       logger.error("JWT gem not available: #{load_error.message}")
